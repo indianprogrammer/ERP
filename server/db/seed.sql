@@ -25,7 +25,7 @@ INSERT INTO plans (id, name, slug, price_monthly, max_users, max_vendors, max_cu
 -- Staff roles for super admin are scoped per-tenant; super admin user is role_id NULL / handled in auth
 
 INSERT INTO users (id, username, password_hash, full_name, email, tenant_id, role_id, must_change_password, is_active) VALUES
-(1,'superadmin','$2b$10$CMiDVIIOjsFups4jOyj8/uMLwIUZWcN18HbyviYnqcJwUbxIdxdo.','Super Administrator','superadmin@x3m.local',NULL,NULL,1,1);
+(1,'superadmin','$2b$10$CMiDVIIOjsFups4jOyj8/uMLwIUZWcN18HbyviYnqcJwUbxIdxdo.','Super Administrator','superadmin@x3m.local',NULL,NULL,0,1);
 
 -- Sample tenant: Acme Corporation
 INSERT INTO tenants (id,name,slug,domain,plan,status,gstin,address) VALUES
