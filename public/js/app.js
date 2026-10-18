@@ -149,7 +149,11 @@ Object.assign(App, {
       try {
         const { user, tenant } = await UI.api('/api/auth/login', {
           method: 'POST',
-          body: { username: document.getElementById('login-user').value.trim(), password: document.getElementById('login-pass').value }
+          body: {
+            username: document.getElementById('login-user').value.trim(),
+            password: document.getElementById('login-pass').value,
+            tenantSlug: document.getElementById('login-tenant').value.trim() || undefined
+          }
         });
         if (tenant) user.tenant = tenant;
         if (user.mustChangePassword) { this.user = user; this.showChangePassword(); }

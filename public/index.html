@@ -18,8 +18,9 @@
   <form id="login-form" class="login-card">
     <div class="login-brand"><span class="g-blue">X</span><span class="g-red">3</span><span class="g-green">M</span> ERP Suite</div>
     <div class="login-sub">Sign in to access Enterprise Dashboard</div>
-    <label class="field"><span>Username</span><input id="login-user" autocomplete="username" value="admin" required></label>
-    <label class="field"><span>Password</span><input id="login-pass" type="password" autocomplete="current-password" value="admin" required></label>
+    <label class="field"><span>Username</span><input id="login-user" autocomplete="username" required></label>
+    <label class="field"><span>Password</span><input id="login-pass" type="password" autocomplete="current-password" required></label>
+    <label class="field"><span>Company Slug (optional)</span><input id="login-tenant" placeholder="e.g. p2p" autocomplete="off"></label>
     <div id="login-error" class="form-error hidden"></div>
     <button class="btn btn-primary btn-block" type="submit">Sign In</button>
     <div class="login-hint">Default Credentials: admin / admin</div>
