@@ -5,7 +5,7 @@ App.registerView('admin', {
     return `
     <div class="page-head"><div><h1>Super Admin</h1><div class="sub">Manage organizations and SAAS plans</div></div>
       <div class="flex" id="admin-actions"></div></div>
-    <div class="tabs">${tabs.map(([k, l]) => `<button class="tab-btn ${tab === k ? 'active' : ''}" onclick="App.views.admin.switchTab('${k}')">${l}</button>`).join('')}</div>
+    <div class="tabs">${tabs.map(([k, l]) => `<button class="tab-btn ${tab === k ? 'active' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>
     <div id="admin-body" class="tab-panel ${tab}">${tab === 'companies' ? '<div class="empty">Loading…</div>' : ''}</div>`;
   },
   async mount() {
@@ -20,43 +20,39 @@ App.registerView('admin', {
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.onclick = (e) => {
         e.preventDefault();
-        this.switchTab(btn.dataset.tab || btn.textContent.trim().toLowerCase().includes('company') ? 'companies' : 'plans');
+        const t = btn.dataset.tab;
+        this.switchTab(t);
       };
     });
   },
   async switchTab(tab) {
     this._tab = tab;
+    // update active class on tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    // fade out panel
     const panel = document.getElementById('admin-body');
     if (panel) {
       panel.classList.remove('fade-in');
-      panel.offsetHeight; // force reflow
+      await new Promise(r => setTimeout(r, 120));
     }
-    // Re-render to update active class on tab buttons
-    const html = this.render();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const newTabs = doc.querySelector('.tabs');
-    const newPanel = doc.querySelector('#admin-body');
-    if (newTabs) {
-      const tabsContainer = document.querySelector('.tabs');
-      if (tabsContainer) tabsContainer.innerHTML = newTabs.innerHTML;
-    }
-    if (panel) {
-      panel.className = `tab-panel ${tab}`;
-      panel.innerHTML = newPanel ? newPanel.innerHTML : '<div class="empty">Loading…</div>';
-      panel.classList.add('fade-in');
-    }
-    const actions = document.getElementById('admin-actions');
+    // load content
     if (tab === 'companies') {
+      const actions = document.getElementById('admin-actions');
       actions.innerHTML = '<button class="btn btn-primary" id="btn-new-org">+ New Company</button>';
       document.getElementById('btn-new-org').onclick = () => this.orgForm();
       await this.renderCompanies();
     } else {
+      const actions = document.getElementById('admin-actions');
       actions.innerHTML = '<button class="btn btn-primary" id="btn-new-plan">+ New Plan</button>';
       document.getElementById('btn-new-plan').onclick = () => this.planForm();
       await this.renderPlans();
     }
-    this._bindTabButtons();
+    // fade in
+    if (panel) {
+      panel.classList.add('fade-in');
+    }
   },
   // ---------- Companies ----------
   async renderCompanies() {
