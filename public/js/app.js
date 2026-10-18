@@ -21,6 +21,7 @@ Object.assign(App, {
     this.applyPermissions();
     this.loadNotifications();
     this.navigate('#/dashboard');
+    this.route();
   },
   showLogin() {
     document.getElementById('app').classList.add('hidden');
