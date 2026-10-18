@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Google Admin ERP Suite</title>
+<link rel="stylesheet" href="/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏢</text></svg>">
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen" class="login-screen hidden">
+  <div class="login-hero">
+    <h1>Welcome to Enterprise ERP System</h1>
+    <p>Authenticate to access system modules, GST reconciliation, multi-project mappings, and inventory controls.</p>
+  </div>
+  <form id="login-form" class="login-card">
+    <div class="login-brand"><span class="g-blue">G</span><span class="g-red">o</span><span class="g-yellow">o</span><span class="g-blue">g</span><span class="g-green">l</span><span class="g-red">e</span> ERP Suite</div>
+    <div class="login-sub">Sign in to access Enterprise Dashboard</div>
+    <label class="field"><span>Username</span><input id="login-user" autocomplete="username" value="admin" required></label>
+    <label class="field"><span>Password</span><input id="login-pass" type="password" autocomplete="current-password" value="admin" required></label>
+    <div id="login-error" class="form-error hidden"></div>
+    <button class="btn btn-primary btn-block" type="submit">Sign In</button>
+    <div class="login-hint">Default Credentials: admin / admin</div>
+  </form>
+  <div class="login-footer">Google Admin ERP v3.4 · Authentication Gateway</div>
+</div>
+
+<!-- CHANGE PASSWORD -->
+<div id="pwd-screen" class="login-screen hidden">
+  <form id="pwd-form" class="login-card">
+    <div class="login-brand">🔐 Security Setup</div>
+    <div class="login-sub">You must change your password before continuing</div>
+    <label class="field"><span>Current Password</span><input id="pwd-current" type="password" required></label>
+    <label class="field"><span>New Password (min 6 chars)</span><input id="pwd-new" type="password" required minlength="6"></label>
+    <label class="field"><span>Confirm New Password</span><input id="pwd-confirm" type="password" required></label>
+    <div id="pwd-error" class="form-error hidden"></div>
+    <button class="btn btn-primary btn-block" type="submit">Update Password</button>
+  </form>
+</div>
+
+<!-- APP SHELL -->
+<div id="app" class="app hidden">
+  <header class="topbar">
+    <button id="btn-menu" class="icon-btn" aria-label="Menu">☰</button>
+    <div class="topbar-brand"><span class="g-blue">G</span><span class="g-red">o</span><span class="g-yellow">o</span><span class="g-blue">g</span><span class="g-green">l</span><span class="g-red">e</span>&nbsp;ERP</div>
+    <div class="topbar-search">
+      <input id="global-search" placeholder="Search invoices, POs, GSTIN, SKUs..." autocomplete="off">
+      <div id="search-results" class="search-results hidden"></div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-quick" class="btn btn-tonal quick-btn">+ Quick Create ▾</button>
+      <div id="quick-menu" class="menu hidden">
+        <a href="#/sales/docs?new=TaxInvoice">+ New Invoice</a>
+        <a href="#/procurement?new=po">+ New PO</a>
+        <a href="#/crm?new=lead">+ New Lead</a>
+        <a href="#/projects?new=expense">+ New Expense</a>
+      </div>
+      <button id="btn-notif" class="icon-btn" title="Notifications">🔔<span id="notif-dot" class="dot hidden"></span></button>
+      <div class="gst-status" title="GST Portal connection"><span class="gst-dot"></span> GST <span class="gst-online">Online</span></div>
+      <div class="user-chip" id="user-chip">
+        <span class="avatar" id="user-avatar">👤</span>
+        <span class="user-meta"><b id="user-name">Admin</b><small id="user-role">(Superuser)</small></span>
+        <div class="menu" id="user-menu">
+          <a href="#/staff">Staff &amp; Access Control</a>
+          <a href="#" id="link-logout">Sign out</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="side-section">MAIN MODULES</div>
+      <a href="#/dashboard" data-nav="dashboard">📊 Dashboard</a>
+      <a href="#/procurement" data-nav="procurement">📦 Procurement</a>
+      <a href="#/sales" data-nav="sales">🧾 Sales &amp; Billing</a>
+      <a href="#/projects" data-nav="projects">📂 Multi-Projects</a>
+      <a href="#/inventory" data-nav="inventory">📊 Inventory Control</a>
+      <div class="side-section">CRM &amp; TAX</div>
+      <a href="#/crm" data-nav="crm">🎛️ Lead Board</a>
+      <a href="#/gst" data-nav="gst">🏛️ GST Portal Sync</a>
+      <a href="#/staff" data-nav="staff">👥 Staff &amp; Security</a>
+    </aside>
+    <div id="side-backdrop" class="side-backdrop hidden"></div>
+    <main class="content" id="content"></main>
+  </div>
+</div>
+
+<!-- NOTIFICATION DRAWER -->
+<div id="notif-drawer" class="drawer hidden">
+  <div class="drawer-head">Notifications <button class="icon-btn" id="notif-close">✕</button></div>
+  <div id="notif-list" class="drawer-body"></div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<div id="modal-root"></div>
+
+<script src="/js/ui.js"></script>
+<script src="/js/views/dashboard.js"></script>
+<script src="/js/views/procurement.js"></script>
+<script src="/js/views/sales.js"></script>
+<script src="/js/views/inventory.js"></script>
+<script src="/js/views/crm.js"></script>
+<script src="/js/views/projects.js"></script>
+<script src="/js/views/gst.js"></script>
+<script src="/js/views/staff.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

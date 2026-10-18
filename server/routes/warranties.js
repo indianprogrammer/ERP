@@ -1,0 +1,34 @@
+const express = require('express');
+const { pool, logAudit, requireModule } = require('../lib/middleware');
+const router = express.Router();
+
+router.get('/', requireModule('procurement'), async (req, res) => {
+  const [rows] = await pool.query(
+    `SELECT w.*, i.sku, i.name item_name, p.po_no FROM warranties w
+     LEFT JOIN items i ON i.id=w.item_id LEFT JOIN purchase_orders p ON p.id=w.po_id ORDER BY w.warranty_end IS NULL, w.warranty_end`);
+  // upcoming alerts: expiring within 30 days
+  const [alerts] = await pool.query(
+    `SELECT w.*, i.name item_name FROM warranties w LEFT JOIN items i ON i.id=w.item_id
+     WHERE w.warranty_end BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)`);
+  res.json({ warranties: rows, alerts });
+});
+
+router.post('/', requireModule('procurement', 'can_create'), async (req, res) => {
+  const { item_id, po_id, serial_no, customer_name, warranty_start, warranty_end, notes } = req.body;
+  if (!serial_no) return res.status(400).json({ error: 'Serial number required' });
+  try {
+    const [r] = await pool.query(
+      'INSERT INTO warranties (item_id,po_id,serial_no,customer_name,warranty_start,warranty_end,notes) VALUES (?,?,?,?,?,?,?)',
+      [item_id || null, po_id || null, serial_no, customer_name || '', warranty_start || null, warranty_end || null, notes || '']);
+    await logAudit(req, 'CREATE', 'warranty', serial_no);
+    res.json({ id: r.insertId });
+  } catch (e) { res.status(400).json({ error: e.code === 'ER_DUP_ENTRY' ? 'Serial number already exists' : e.message }); }
+});
+
+router.put('/:id', requireModule('procurement', 'can_update'), async (req, res) => {
+  const { customer_name, warranty_start, warranty_end, status, notes } = req.body;
+  await pool.query('UPDATE warranties SET customer_name=?,warranty_start=?,warranty_end=?,status=?,notes=? WHERE id=?',
+    [customer_name || '', warranty_start || null, warranty_end || null, status || 'Active', notes || '', req.params.id]);
+  res.json({ ok: true });
+});
+module.exports = router;
