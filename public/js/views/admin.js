@@ -5,7 +5,7 @@ App.registerView('admin', {
     return `
     <div class="page-head"><div><h1>Super Admin</h1><div class="sub">Manage organizations and SAAS plans</div></div>
       <div class="flex" id="admin-actions"></div></div>
-    <div class="tabs">${tabs.map(([k, l]) => `<button class="${tab === k ? 'active' : ''}" onclick="App.views.admin.switchTab('${k}')">${l}</button>`).join('')}</div>
+    <div class="tabs">${tabs.map(([k, l]) => `<button class="${tab === k ? 'active' : ''}" data-tab="${k}" onclick="App.views.admin.switchTab('${k}')">${l}</button>`).join('')}</div>
     <div id="admin-body">${tab === 'companies' ? '<div class="empty">Loading…</div>' : ''}</div>`;
   },
   async mount() {
@@ -17,6 +17,9 @@ App.registerView('admin', {
   },
   async switchTab(tab) {
     this._tab = tab;
+    document.querySelectorAll('.tabs button').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
     const panel = document.getElementById('admin-body');
     if (tab === 'companies') {
       const actions = document.getElementById('admin-actions');
