@@ -5,8 +5,8 @@ App.registerView('admin', {
     return `
     <div class="page-head"><div><h1>Super Admin</h1><div class="sub">Manage organizations and SAAS plans</div></div>
       <div class="flex" id="admin-actions"></div></div>
-    <div class="tabs">${tabs.map(([k, l]) => `<button class="${tab === k ? 'active' : ''}" onclick="App.views.admin.switchTab('${k}')">${l}</button>`).join('')}</div>
-    <div id="admin-body"><div class="empty">Loading…</div></div>`;
+    <div class="tabs">${tabs.map(([k, l]) => `<button class="tab-btn ${tab === k ? 'active' : ''}" onclick="App.views.admin.switchTab('${k}')">${l}</button>`).join('')}</div>
+    <div id="admin-body" class="tab-panel ${tab}">${tab === 'companies' ? '<div class="empty">Loading…</div>' : ''}</div>`;
   },
   async mount() {
     this._tab = 'companies';
@@ -14,9 +14,38 @@ App.registerView('admin', {
     actions.innerHTML = '<button class="btn btn-primary" id="btn-new-org">+ New Company</button>';
     document.getElementById('btn-new-org').onclick = () => this.orgForm();
     await this.renderCompanies();
+    this._bindTabButtons();
+  },
+  _bindTabButtons() {
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        e.preventDefault();
+        this.switchTab(btn.dataset.tab || btn.textContent.trim().toLowerCase().includes('company') ? 'companies' : 'plans');
+      };
+    });
   },
   async switchTab(tab) {
     this._tab = tab;
+    const panel = document.getElementById('admin-body');
+    if (panel) {
+      panel.classList.remove('fade-in');
+      panel.offsetHeight; // force reflow
+    }
+    // Re-render to update active class on tab buttons
+    const html = this.render();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const newTabs = doc.querySelector('.tabs');
+    const newPanel = doc.querySelector('#admin-body');
+    if (newTabs) {
+      const tabsContainer = document.querySelector('.tabs');
+      if (tabsContainer) tabsContainer.innerHTML = newTabs.innerHTML;
+    }
+    if (panel) {
+      panel.className = `tab-panel ${tab}`;
+      panel.innerHTML = newPanel ? newPanel.innerHTML : '<div class="empty">Loading…</div>';
+      panel.classList.add('fade-in');
+    }
     const actions = document.getElementById('admin-actions');
     if (tab === 'companies') {
       actions.innerHTML = '<button class="btn btn-primary" id="btn-new-org">+ New Company</button>';
@@ -27,10 +56,14 @@ App.registerView('admin', {
       document.getElementById('btn-new-plan').onclick = () => this.planForm();
       await this.renderPlans();
     }
+    this._bindTabButtons();
   },
   // ---------- Companies ----------
   async renderCompanies() {
-    const body = document.getElementById('admin-body');
+    const panel = document.getElementById('admin-body');
+    if (!panel) return;
+    panel.classList.remove('fade-in');
+    panel.offsetHeight;
     try {
       const { tenants } = await UI.api('/api/admin/tenants');
       const rows = tenants.map(t => {
@@ -43,7 +76,7 @@ App.registerView('admin', {
           _e: `<button class="btn btn-outline btn-sm" onclick="App.views.admin.orgForm(${t.id})">Edit</button>`
         };
       });
-      body.innerHTML = `<div class="panel"><h2>Organizations (${tenants.length})</h2>
+      panel.innerHTML = `<div class="panel"><h2>Organizations (${tenants.length})</h2>
         ${UI.table(['name', 'slug', 'domain', 'plan', { key: 'status', label: 'Status' }, { key: '_a', label: 'Action' }, { key: '_e', label: '' }],
           rows, {
           name: v => `<b>${UI.esc(v)}</b>`,
@@ -51,7 +84,8 @@ App.registerView('admin', {
           _a: v => v,
           _e: v => v
         })}</div>`;
-    } catch (e) { body.innerHTML = `<div class="form-error">${UI.esc(e.message)}</div>`; }
+      panel.classList.add('fade-in');
+    } catch (e) { panel.innerHTML = `<div class="form-error">${UI.esc(e.message)}</div>`; }
   },
   async toggleOrg(id, status) {
     try {
@@ -102,7 +136,10 @@ App.registerView('admin', {
   },
   // ---------- Plans ----------
   async renderPlans() {
-    const body = document.getElementById('admin-body');
+    const panel = document.getElementById('admin-body');
+    if (!panel) return;
+    panel.classList.remove('fade-in');
+    panel.offsetHeight;
     try {
       const { plans } = await UI.api('/api/admin/plans');
       const rows = plans.map(p => ({
@@ -112,7 +149,7 @@ App.registerView('admin', {
         _a: `<button class="btn btn-outline btn-sm" onclick="App.views.admin.planForm(${p.id})">Edit</button>
              <button class="btn btn-outline btn-sm" onclick="App.views.admin.deletePlan(${p.id})" style="color:var(--red)">Delete</button>`
       }));
-      body.innerHTML = `<div class="panel"><h2>SAAS Plans (${plans.length})</h2>
+      panel.innerHTML = `<div class="panel"><h2>SAAS Plans (${plans.length})</h2>
         ${UI.table(['name', 'slug', 'price', 'max_users', 'max_vendors', 'max_customers', { key: 'status', label: 'Status' }, { key: '_a', label: 'Action' }],
           rows, {
           name: v => `<b>${UI.esc(v)}</b>`,
@@ -120,7 +157,8 @@ App.registerView('admin', {
           status: v => UI.badge(v === 'Active' ? 'Active' : 'Inactive'),
           _a: v => v
         })}</div>`;
-    } catch (e) { body.innerHTML = `<div class="form-error">${UI.esc(e.message)}</div>`; }
+      panel.classList.add('fade-in');
+    } catch (e) { panel.innerHTML = `<div class="form-error">${UI.esc(e.message)}</div>`; }
   },
   async deletePlan(id) {
     if (!confirm('Delete this plan?')) return;
