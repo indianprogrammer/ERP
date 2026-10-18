@@ -3,7 +3,7 @@ const { pool, logAudit, requireModule } = require('../lib/middleware');
 const { deductStockForDoc } = require('./stock');
 const router = express.Router();
 
-const SELLER = { name: 'Google ERP Systems Pvt Ltd', gstin: '27AAAAA0000A1Z5', pan: 'AAAAA0000A', address: 'BKC, Mumbai 400051', state_code: '27' };
+const SELLER = { name: 'X3M Systems Pvt Ltd', gstin: '27AAAAA0000A1Z5', pan: 'AAAAA0000A', address: 'BKC, Mumbai 400051', state_code: '27' };
 const OUR_STATE = '27'; // Maharashtra
 
 const PREFIX = { Proforma: 'PI', TaxInvoice: 'INV', DeliveryChallan: 'CH', CreditNote: 'CN', DebitNote: 'DN' };

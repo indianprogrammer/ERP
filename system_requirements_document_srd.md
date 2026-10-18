@@ -3,7 +3,7 @@
 **Project Name:** Enterprise Resource Planning & Business Management System (ERP Core)  
 **Document Version:** 2.0  
 **Target Platform:** Web / Desktop Application  
-**UI Theme Guidance:** Google Material Design 3 / Google Admin Dashboard Theme with **Dual Navigation Architecture** (Top Bar + Left Drawer Navigation).
+**UI Theme Guidance:** X3M Material Design 3 / X3M Admin Dashboard Theme with **Dual Navigation Architecture** (Top Bar + Left Drawer Navigation).
 
 ---
 

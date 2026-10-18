@@ -7,7 +7,7 @@
 ---
 
 ## 1. Executive Summary & Vision
-The goal of this ERP system is to provide a single, unified business management platform styled after Google's Material/Admin UI. It streamlines both buyer (procurement) and seller (sales) operations, automates Indian GST tax management, supports multi-project tracking, enables drag-and-drop CRM lead tracking, and maintains inventory with staff role-based access control.
+The goal of this ERP system is to provide a single, unified business management platform styled after X3M's Material/Admin UI. It streamlines both buyer (procurement) and seller (sales) operations, automates Indian GST tax management, supports multi-project tracking, enables drag-and-drop CRM lead tracking, and maintains inventory with staff role-based access control.
 
 ---
 
@@ -55,7 +55,7 @@ The goal of this ERP system is to provide a single, unified business management 
 
 ## 4. UI/UX & Design Guidelines
 * **Navigation Scheme:** Dual menu architecture — a top navigation bar for global search, quick creation (`+`), notifications, and user status; paired with an expandable left sidebar for switching between main modules.
-* **Theme:** Google Admin Dashboard Theme (Material Design 3 aesthetic, light off-white `#F8F9FA` background, primary `#1A73E8` blue accents, clean borderless tables, and subtle badges).
+* **Theme:** X3M Admin Dashboard Theme (Material Design 3 aesthetic, light off-white `#F8F9FA` background, primary `#1A73E8` blue accents, clean borderless tables, and subtle badges).
 
 ---
 

@@ -5,7 +5,7 @@ const path = require('path');
 
 const BASE = process.env.BASE_URL || 'http://localhost:3000';
 const OUT = path.join(__dirname, '..', 'screenshots');
-const CHROME = process.env.CHROME_PATH || '/opt/google/chrome/chrome';
+const CHROME = process.env.CHROME_PATH || '/opt/X3M/chrome/chrome';
 
 const pages = [
   { name: '01-dashboard', hash: '#/dashboard', wait: 1500 },

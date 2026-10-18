@@ -2,7 +2,7 @@
 
 # 🏢 Enterprise ERP & GST Management Suite
 
-**A full-stack, GST-compliant ERP with Google Admin (Material 3) UI — Procurement, Sales & Billing, CRM Kanban, Multi-Project Cost Mapping, Inventory, and GST Portal reconciliation.**
+**A full-stack, GST-compliant ERP with an X3M (Material 3) UI — Procurement, Sales & Billing, CRM Kanban, Multi-Project Cost Mapping, Inventory, and GST Portal reconciliation.**
 
 ![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white)
@@ -16,7 +16,7 @@
 
 ## 📖 Overview
 
-A unified business management platform styled after the **Google Admin Dashboard**. It streamlines both **buyer (procurement)** and **seller (sales)** operations, automates **Indian GST** tax management, supports **multi-project tracking**, enables **drag-and-drop CRM lead tracking**, and maintains **inventory** with **role-based access control**.
+A unified business management platform styled after the **X3M Admin Dashboard**. It streamlines both **buyer (procurement)** and **seller (sales)** operations, automates **Indian GST** tax management, supports **multi-project tracking**, enables **drag-and-drop CRM lead tracking**, and maintains **inventory** with **role-based access control**.
 
 Built as a lightweight REST API (Express) + a dependency-free vanilla-JS single-page app, served from one process — so it runs anywhere Node runs, with no frontend build step.
 
@@ -73,7 +73,7 @@ Built as a lightweight REST API (Express) + a dependency-free vanilla-JS single-
 
 ### 🎨 UI/UX
 - **Dual navigation** — global top bar (search, quick-create, notifications, GST status, user switcher) + expandable left drawer
-- Google Material 3 aesthetic — off-white `#F8F9FA` background, `#1A73E8` blue accents, borderless tables, subtle badges
+- X3M Material 3 aesthetic — off-white `#F8F9FA` background, `#1A73E8` blue accents, borderless tables, subtle badges
 - **Fully responsive** — desktop, tablet, and mobile (off-canvas drawer, fluid grids, scrollable tables)
 - In-app **notifications**, **global instant search** (invoices, POs, GSTINs, SKUs, projects)
 
@@ -145,7 +145,7 @@ Built as a lightweight REST API (Express) + a dependency-free vanilla-JS single-
 
 | Layer | Technology |
 |---|---|
-| **Frontend** | Vanilla JS SPA (hash router), HTML5, hand-written CSS (Material 3 / Google Admin theme) — **no build step** |
+| **Frontend** | Vanilla JS SPA (hash router), HTML5, hand-written CSS (Material 3 / X3M Admin theme) — **no build step** |
 | **Backend** | Node.js, Express 4 |
 | **Database** | MariaDB / MySQL 8 (via `mysql2` connection pool) |
 | **Auth** | `express-session` (server-side sessions) + `bcryptjs` |
@@ -410,4 +410,4 @@ docker compose up -d --build      # → http://localhost:3000
 
 Released under the **MIT License**. See `LICENSE` for details.
 
-<div align="center"><sub>Built with ❤️ for Indian businesses · Google Admin ERP Suite v3.4</sub></div>
+<div align="center"><sub>Built with ❤️ for Indian businesses · X3M Admin ERP Suite v3.4</sub></div>
