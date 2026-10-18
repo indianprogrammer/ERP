@@ -99,4 +99,58 @@ router.put('/tenants/:id', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Plan Management ----
+
+router.get('/plans', requireAuth, async (req, res, next) => {
+  if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Super admin only' });
+  next();
+}, async (req, res) => {
+  const [rows] = await pool.query('SELECT * FROM plans ORDER BY id');
+  res.json({ plans: rows });
+});
+
+router.post('/plans', requireAuth, async (req, res, next) => {
+  if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Super admin only' });
+  next();
+}, async (req, res) => {
+  const { name, slug, price_monthly, max_users, max_vendors, max_customers, features, is_active } = req.body || {};
+  if (!name || !slug) return res.status(400).json({ error: 'Name and slug required' });
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
+    return res.status(400).json({ error: 'Slug must be lowercase alphanumeric with hyphens' });
+  }
+  try {
+    const [r] = await pool.query(
+      'INSERT INTO plans (name,slug,price_monthly,max_users,max_vendors,max_customers,features,is_active) VALUES (?,?,?,?,?,?,?,?)',
+      [name, slug, price_monthly || 0, max_users || 5, max_vendors || 50, max_customers || 50, JSON.stringify(features || {}), is_active ? 1 : 1]);
+    await logAudit(req, 'PLAN_CREATE', 'plans', name);
+    res.status(201).json({ ok: true, planId: r.insertId });
+  } catch (e) { res.status(400).json({ error: e.code === 'ER_DUP_ENTRY' ? 'Plan slug already exists' : e.message }); }
+});
+
+router.put('/plans/:id', requireAuth, async (req, res, next) => {
+  if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Super admin only' });
+  next();
+}, async (req, res) => {
+  const { name, slug, price_monthly, max_users, max_vendors, max_customers, features, is_active } = req.body || {};
+  if (!name || !slug) return res.status(400).json({ error: 'Name and slug required' });
+  const [existing] = await pool.query('SELECT id FROM plans WHERE slug=? AND id<>?', [slug, req.params.id]);
+  if (existing.length) throw new Error('Plan slug already exists');
+  await pool.query(
+    'UPDATE plans SET name=?, slug=?, price_monthly=?, max_users=?, max_vendors=?, max_customers=?, features=?, is_active=? WHERE id=?',
+    [name, slug, price_monthly || 0, max_users || 5, max_vendors || 50, max_customers || 50, JSON.stringify(features || null), is_active ? 1 : 0, req.params.id]);
+  await logAudit(req, 'PLAN_UPDATE', 'plans', `${req.params.id} name=${name}`);
+  res.json({ ok: true });
+});
+
+router.delete('/plans/:id', requireAuth, async (req, res, next) => {
+  if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Super admin only' });
+  next();
+}, async (req, res) => {
+  const [used] = await pool.query('SELECT COUNT(*) c FROM tenants WHERE plan=?', [req.params.id]);
+  if (used[0].c > 0) return res.status(400).json({ error: 'Plan is in use by companies' });
+  await pool.query('DELETE FROM plans WHERE id=?', [req.params.id]);
+  await logAudit(req, 'PLAN_DELETE', 'plans', req.params.id);
+  res.json({ ok: true });
+});
+
 module.exports = router;

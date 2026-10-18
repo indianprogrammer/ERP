@@ -34,7 +34,7 @@ CREATE TABLE plans (
   max_users INT NOT NULL DEFAULT 5,
   max_vendors INT NOT NULL DEFAULT 50,
   max_customers INT NOT NULL DEFAULT 50,
-  features JSON NULL,
+  features TEXT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
