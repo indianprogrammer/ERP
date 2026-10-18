@@ -36,16 +36,35 @@ app.get('/api/dashboard', async (req, res) => {
   try {
     const q = async (sql, params = []) => (await pool.query(sql, params))[0];
     const tid = req.tenantId;
-    let companyCount = 0;
-    if (tid) {
-      companyCount = 1;
-    } else {
-      const [{ c }] = await q('SELECT COUNT(*) c FROM tenants');
-      companyCount = c;
+    const isSuperAdmin = !tid;
+
+    if (isSuperAdmin) {
+      const [{ c: total }] = await q('SELECT COUNT(*) c FROM tenants');
+      const [{ c: active }] = await q("SELECT COUNT(*) c FROM tenants WHERE status IN ('active','trial')");
+      const [{ c: suspended }] = await q("SELECT COUNT(*) c FROM tenants WHERE status='suspended'");
+      const [{ c: plans }] = await q('SELECT COUNT(*) c FROM plans');
+      const [recent] = await q('SELECT id,name,slug,plan,status,created_at FROM tenants ORDER BY created_at DESC LIMIT 5');
+      const [planRows] = await q('SELECT slug, COUNT(*) c FROM tenants GROUP BY slug');
+      const planMap = {};
+      for (const r of planRows) planMap[r.slug] = Number(r.c);
+      res.json({
+        isSuperAdmin: true,
+        companyCount: Number(total),
+        activeCompanies: Number(active),
+        suspendedCompanies: Number(suspended),
+        totalPlans: Number(plans),
+        recentTenants: recent,
+        planUsage: planMap,
+        notifications: []
+      });
+      return;
     }
+
+    // tenant dashboard (existing simplified)
+    let companyCount = 1;
     const [notifs] = await q('SELECT id,title,body,kind,link,created_at FROM notifications WHERE tenant_id IS NULL OR tenant_id=? ORDER BY id DESC LIMIT 8', [tid || 0]);
     res.json({
-      tenant: req.tenant ? { id: req.tenant.id, name: req.tenant.name, slug: req.tenant.slug, plan: req.tenant.plan, status: req.tenant.status } : null,
+      tenant: { id: req.tenant.id, name: req.tenant.name, slug: req.tenant.slug, plan: req.tenant.plan, status: req.tenant.status },
       companyCount,
       notifications: notifs
     });

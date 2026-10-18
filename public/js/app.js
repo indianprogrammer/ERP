@@ -26,7 +26,7 @@ Object.assign(App, {
     }
     this.applyPermissions();
     this.loadNotifications();
-    if (user.isSuperAdmin) { this.navigate('#/admin'); }
+    if (user.isSuperAdmin) { this.navigate('#/dashboard'); }
     else { this.navigate('#/dashboard'); }
     this.route();
   },
