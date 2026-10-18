@@ -240,8 +240,7 @@ CREATE TABLE shipments (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_ship_tenant (tenant_id),
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
-  FOREIGN KEY (po_id) REFERENCES purchase_orders(id),
-  FOREIGN KEY (sales_doc_id) REFERENCES sales_documents(id)
+  FOREIGN KEY (po_id) REFERENCES purchase_orders(id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE warranties (
@@ -258,7 +257,6 @@ CREATE TABLE warranties (
   UNIQUE KEY uq_serial_tenant (tenant_id, serial_no),
   INDEX idx_warr_tenant (tenant_id),
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
-  FOREIGN KEY (item_id) REFERENCES items(id),
   FOREIGN KEY (po_id) REFERENCES purchase_orders(id)
 ) ENGINE=InnoDB;
 

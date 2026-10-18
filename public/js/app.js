@@ -23,7 +23,8 @@ Object.assign(App, {
     else { tenantEl.textContent = 'Super Admin'; tenantEl.style.display='inline'; }
     this.applyPermissions();
     this.loadNotifications();
-    this.navigate('#/dashboard');
+    if (user.isSuperAdmin) { this.navigate('#/admin'); }
+    else { this.navigate('#/dashboard'); }
     this.route();
   },
   showLogin() {
@@ -43,7 +44,17 @@ Object.assign(App, {
     return !!(p && p[perm]);
   },
   applyPermissions() {
-    const map = { procurement: 'procurement', sales: 'sales', projects: 'projects', inventory: 'inventory', crm: 'crm', gst: 'gst', staff: 'admin' };
+    const map = { procurement: 'procurement', sales: 'sales', projects: 'projects', inventory: 'inventory', crm: 'crm', gst: 'gst', staff: 'admin', admin: null };
+    const adminLink = document.querySelector('.sidebar a[data-nav="admin"]');
+    if (this.user && this.user.isSuperAdmin) {
+      document.querySelectorAll('.sidebar a[data-nav]').forEach(a => {
+        if (a.dataset.nav === 'admin') a.style.display = '';
+        else a.style.display = 'none';
+      });
+      if (adminLink) adminLink.style.display = '';
+      return;
+    }
+    if (adminLink) adminLink.style.display = 'none';
     document.querySelectorAll('.sidebar a[data-nav]').forEach(a => {
       const mod = map[a.dataset.nav];
       if (mod && !this.can(mod) && a.dataset.nav !== 'dashboard') a.style.display = 'none';
@@ -58,6 +69,10 @@ Object.assign(App, {
     const parts = path.split('/').filter(Boolean);
     const params = Object.fromEntries(new URLSearchParams(qs || ''));
     const name = parts[0] || 'dashboard';
+    if (this.user && this.user.isSuperAdmin && name !== 'admin') {
+      location.hash = '#/admin';
+      return;
+    }
     const view = this.views[name] || this.views.dashboard;
     const content = document.getElementById('content');
     document.querySelectorAll('.sidebar a[data-nav]').forEach(a =>
