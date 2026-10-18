@@ -5,8 +5,8 @@ App.registerView('admin', {
     return `
     <div class="page-head"><div><h1>Super Admin</h1><div class="sub">Manage organizations and SAAS plans</div></div>
       <div class="flex" id="admin-actions"></div></div>
-    <div class="tabs">${tabs.map(([k, l]) => `<button class="tab-btn ${tab === k ? 'active' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>
-    <div id="admin-body" class="tab-panel ${tab}">${tab === 'companies' ? '<div class="empty">Loading…</div>' : ''}</div>`;
+    <div class="tabs">${tabs.map(([k, l]) => `<button class="${tab === k ? 'active' : ''}" onclick="App.views.admin.switchTab('${k}')">${l}</button>`).join('')}</div>
+    <div id="admin-body">${tab === 'companies' ? '<div class="empty">Loading…</div>' : ''}</div>`;
   },
   async mount() {
     this._tab = 'companies';
@@ -14,30 +14,10 @@ App.registerView('admin', {
     actions.innerHTML = '<button class="btn btn-primary" id="btn-new-org">+ New Company</button>';
     document.getElementById('btn-new-org').onclick = () => this.orgForm();
     await this.renderCompanies();
-    this._bindTabButtons();
-  },
-  _bindTabButtons() {
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      btn.onclick = (e) => {
-        e.preventDefault();
-        const t = btn.dataset.tab;
-        this.switchTab(t);
-      };
-    });
   },
   async switchTab(tab) {
     this._tab = tab;
-    // update active class on tab buttons
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.tab === tab);
-    });
-    // fade out panel
     const panel = document.getElementById('admin-body');
-    if (panel) {
-      panel.classList.remove('fade-in');
-      await new Promise(r => setTimeout(r, 120));
-    }
-    // load content
     if (tab === 'companies') {
       const actions = document.getElementById('admin-actions');
       actions.innerHTML = '<button class="btn btn-primary" id="btn-new-org">+ New Company</button>';
@@ -49,17 +29,11 @@ App.registerView('admin', {
       document.getElementById('btn-new-plan').onclick = () => this.planForm();
       await this.renderPlans();
     }
-    // fade in
-    if (panel) {
-      panel.classList.add('fade-in');
-    }
   },
   // ---------- Companies ----------
   async renderCompanies() {
     const panel = document.getElementById('admin-body');
     if (!panel) return;
-    panel.classList.remove('fade-in');
-    panel.offsetHeight;
     try {
       const { tenants } = await UI.api('/api/admin/tenants');
       const rows = tenants.map(t => {
@@ -80,7 +54,6 @@ App.registerView('admin', {
           _a: v => v,
           _e: v => v
         })}</div>`;
-      panel.classList.add('fade-in');
     } catch (e) { panel.innerHTML = `<div class="form-error">${UI.esc(e.message)}</div>`; }
   },
   async toggleOrg(id, status) {
@@ -134,8 +107,6 @@ App.registerView('admin', {
   async renderPlans() {
     const panel = document.getElementById('admin-body');
     if (!panel) return;
-    panel.classList.remove('fade-in');
-    panel.offsetHeight;
     try {
       const { plans } = await UI.api('/api/admin/plans');
       const rows = plans.map(p => ({
@@ -153,7 +124,6 @@ App.registerView('admin', {
           status: v => UI.badge(v === 'Active' ? 'Active' : 'Inactive'),
           _a: v => v
         })}</div>`;
-      panel.classList.add('fade-in');
     } catch (e) { panel.innerHTML = `<div class="form-error">${UI.esc(e.message)}</div>`; }
   },
   async deletePlan(id) {
