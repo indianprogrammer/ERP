@@ -79,11 +79,21 @@ button{font-family:inherit}
 #btn-quick + .menu{top:calc(100% + 8px);right:auto;left:0}
 
 .shell{display:flex;flex:1;min-height:0}
-.sidebar{width:var(--side-w);background:var(--surface);border-right:1px solid var(--border);padding:10px 0;overflow-y:auto;flex-shrink:0;transition:margin .2s}
-.sidebar a{display:block;padding:10px 22px;color:var(--text-2);font-size:13.5px;border-left:3px solid transparent}
+.sidebar{width:var(--side-w);background:var(--surface);border-right:1px solid var(--border);padding:10px 0;overflow-y:auto;flex-shrink:0;transition:width .2s,margin .2s}
+.sidebar a{display:flex;align-items:center;gap:10px;padding:10px 22px;color:var(--text-2);font-size:13.5px;border-left:3px solid transparent}
+.sidebar a .nav-icon{font-size:16px}
+.sidebar a .nav-label{white-space:nowrap}
 .sidebar a:hover{background:#F1F3F4;color:var(--text)}
 .sidebar a.active{color:var(--primary);background:#E8F0FE;border-left-color:var(--primary);font-weight:600}
 .side-section{padding:14px 22px 6px;font-size:11px;font-weight:700;color:var(--text-2);letter-spacing:.8px}
+.sidebar.collapsed{width:68px;overflow:visible}
+.sidebar.collapsed .side-section,.sidebar.collapsed .nav-label{display:none}
+.sidebar.collapsed a{padding:10px 8px;justify-content:center;border-left:none}
+.sidebar.collapsed a.active{border-bottom:3px solid var(--primary);border-left:none}
+.sidebar.collapsed:hover{width:var(--side-w)}
+.sidebar.collapsed:hover .side-section,.sidebar.collapsed:hover .nav-label{display:block}
+.sidebar.collapsed:hover a{padding:10px 22px;justify-content:flex-start;border-left:3px solid transparent}
+.sidebar.collapsed:hover a.active{border-bottom:none;border-left-color:var(--primary)}
 .side-backdrop{position:fixed;inset:0;background:rgba(32,33,36,.45);z-index:44}
 .content{flex:1;overflow-y:auto;padding:22px 26px;min-width:0}
 

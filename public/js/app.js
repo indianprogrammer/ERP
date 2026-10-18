@@ -74,8 +74,13 @@ Object.assign(App, {
     window.addEventListener('hashchange', () => this.route());
     const sidebar = document.getElementById('sidebar'), backdrop = document.getElementById('side-backdrop');
     document.getElementById('btn-menu').onclick = () => {
-      sidebar.classList.toggle('open');
-      backdrop.classList.toggle('hidden', !sidebar.classList.contains('open'));
+      const isMobile = window.matchMedia('(max-width:768px)').matches;
+      if (isMobile) {
+        sidebar.classList.toggle('open');
+        backdrop.classList.toggle('hidden', !sidebar.classList.contains('open'));
+      } else {
+        sidebar.classList.toggle('collapsed');
+      }
     };
     backdrop.onclick = () => { sidebar.classList.remove('open'); backdrop.classList.add('hidden'); };
 
