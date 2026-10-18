@@ -50,12 +50,14 @@
       <div id="search-results" class="search-results hidden"></div>
     </div>
     <div class="topbar-actions">
-      <button id="btn-quick" class="btn btn-tonal quick-btn">+ Quick Create ▾</button>
-      <div id="quick-menu" class="menu hidden">
-        <a href="#/sales/docs?new=TaxInvoice">+ New Invoice</a>
-        <a href="#/procurement?new=po">+ New PO</a>
-        <a href="#/crm?new=lead">+ New Lead</a>
-        <a href="#/projects?new=expense">+ New Expense</a>
+      <div class="sa-hide" id="quick-actions">
+        <button id="btn-quick" class="btn btn-tonal quick-btn">+ Quick Create ▾</button>
+        <div id="quick-menu" class="menu hidden">
+          <a href="#/sales/docs?new=TaxInvoice">+ New Invoice</a>
+          <a href="#/procurement?new=po">+ New PO</a>
+          <a href="#/crm?new=lead">+ New Lead</a>
+          <a href="#/projects?new=expense">+ New Expense</a>
+        </div>
       </div>
       <button id="btn-notif" class="icon-btn" title="Notifications">🔔<span id="notif-dot" class="dot hidden"></span></button>
       <div class="gst-status sa-hide" title="GST Portal connection"><span class="gst-dot"></span> GST <span class="gst-online">Online</span></div>
