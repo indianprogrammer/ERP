@@ -18,6 +18,9 @@ Object.assign(App, {
     document.getElementById('app').classList.remove('hidden');
     document.getElementById('user-name').textContent = user.fullName || user.username;
     document.getElementById('user-role').textContent = `(${user.role})`;
+    const tenantEl = document.getElementById('tenant-name');
+    if (user.tenant_id) { tenantEl.textContent = `· ${(user.tenant && user.tenant.name) || 'Organization'}`; tenantEl.style.display='inline'; }
+    else { tenantEl.textContent = 'Super Admin'; tenantEl.style.display='inline'; }
     this.applyPermissions();
     this.loadNotifications();
     this.navigate('#/dashboard');
@@ -126,10 +129,11 @@ Object.assign(App, {
       const err = document.getElementById('login-error');
       err.classList.add('hidden');
       try {
-        const { user } = await UI.api('/api/auth/login', {
+        const { user, tenant } = await UI.api('/api/auth/login', {
           method: 'POST',
           body: { username: document.getElementById('login-user').value.trim(), password: document.getElementById('login-pass').value }
         });
+        if (tenant) user.tenant = tenant;
         if (user.mustChangePassword) { this.user = user; this.showChangePassword(); }
         else this.setUser(user);
       } catch (ex) { err.textContent = ex.message; err.classList.remove('hidden'); }

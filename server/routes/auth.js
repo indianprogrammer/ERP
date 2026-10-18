@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { pool, logAudit, requireAuth } = require('../lib/middleware');
+const { resolveTenant, tenantScope } = require('../lib/tenant');
 
 const router = express.Router();
 
@@ -11,24 +12,67 @@ async function loadUserPerms(userId, roleId) {
   return perms;
 }
 
+// --- Public: resolve tenant slug from header/body for status check ---
+router.get('/tenant/:slug', async (req, res) => {
+  const [rows] = await pool.query('SELECT id,name,slug,plan,status,trial_ends_at,subscription_ends_at FROM tenants WHERE slug=?', [req.params.slug]);
+  if (!rows[0]) return res.status(404).json({ error: 'Organization not found' });
+  res.json({ tenant: rows[0] });
+});
+
+// --- Login (tenant-scoped) ---
 router.post('/login', async (req, res) => {
-  const { username, password } = req.body || {};
+  const { username, password, tenantSlug } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+
+  let tenantId = null;
+  if (tenantSlug) {
+    const [trows] = await pool.query('SELECT id,status FROM tenants WHERE slug=?', [tenantSlug]);
+    if (!trows[0]) return res.status(404).json({ error: 'Organization not found' });
+    if (trows[0].status !== 'active' && trows[0].status !== 'trial') {
+      return res.status(403).json({ error: 'Organization account is not active' });
+    }
+    tenantId = trows[0].id;
+  } else if (req.session?.user && req.session.user.tenant_id) {
+    tenantId = req.session.user.tenant_id;
+  } else {
+    // Bare-domain login: allow only super admins (tenant_id NULL)
+    const [rows] = await pool.query(
+      `SELECT u.*, r.name AS role FROM users u LEFT JOIN staff_roles r ON r.id=u.role_id WHERE u.username=? AND u.tenant_id IS NULL AND u.is_active=1`,
+      [username]
+    );
+    const u = rows[0];
+    if (!u || !bcrypt.compareSync(password, u.password_hash)) {
+      await logAudit(req, 'LOGIN_FAIL', 'auth', `user=${username}`);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    req.session.user = {
+      id: u.id, username: u.username, fullName: u.full_name, role: u.role || 'Super Admin',
+      tenant_id: null, isSuperAdmin: true, mustChangePassword: !!u.must_change_password, perms: {}
+    };
+    await pool.query('UPDATE users SET last_login=NOW() WHERE id=?', [u.id]);
+    await logAudit(req, 'LOGIN', 'auth', `user=${username} (super admin)`);
+    return res.json({ user: req.session.user, tenant: null });
+  }
+
   const [rows] = await pool.query(
-    `SELECT u.*, r.name AS role FROM users u LEFT JOIN staff_roles r ON r.id=u.role_id WHERE u.username=? AND u.is_active=1`, [username]);
+    `SELECT u.*, r.name AS role FROM users u LEFT JOIN staff_roles r ON r.id=u.role_id
+     WHERE u.username=? AND u.tenant_id=? AND u.is_active=1`,
+    [username, tenantId]
+  );
   const u = rows[0];
   if (!u || !bcrypt.compareSync(password, u.password_hash)) {
-    await logAudit(req, 'LOGIN_FAIL', 'auth', `user=${username}`);
+    await logAudit(req, 'LOGIN_FAIL', 'auth', `user=${username} tenant=${tenantId}`);
     return res.status(401).json({ error: 'Invalid credentials' });
   }
   const perms = await loadUserPerms(u.id, u.role_id);
   req.session.user = {
     id: u.id, username: u.username, fullName: u.full_name, role: u.role || 'Staff',
-    mustChangePassword: !!u.must_change_password, perms
+    tenant_id: u.tenant_id, isSuperAdmin: false, mustChangePassword: !!u.must_change_password, perms
   };
   await pool.query('UPDATE users SET last_login=NOW() WHERE id=?', [u.id]);
-  await logAudit(req, 'LOGIN', 'auth', `user=${username}`);
-  res.json({ user: req.session.user });
+  await logAudit(req, 'LOGIN', 'auth', `user=${username} tenant=${tenantId}`);
+  const [trows] = await pool.query('SELECT id,name,slug,plan,status FROM tenants WHERE id=?', [tenantId]);
+  res.json({ user: req.session.user, tenant: trows[0] });
 });
 
 router.post('/change-password', requireAuth, async (req, res) => {
@@ -46,9 +90,16 @@ router.post('/change-password', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-router.get('/me', (req, res) => {
+router.get('/me', requireAuth, async (req, res) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Not authenticated' });
-  res.json({ user: req.session.user });
+  let user = req.session.user;
+  if (user.tenant_id) {
+    const [trows] = await pool.query('SELECT id,name,slug,plan,status FROM tenants WHERE id=?', [user.tenant_id]);
+    if (trows[0]) user.tenant = trows[0];
+  } else {
+    user.isSuperAdmin = true;
+  }
+  res.json({ user });
 });
 
 router.post('/logout', (req, res) => {

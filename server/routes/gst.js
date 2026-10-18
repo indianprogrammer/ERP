@@ -2,21 +2,23 @@ const express = require('express');
 const { pool, logAudit, requireModule } = require('../lib/middleware');
 const router = express.Router();
 
+const tid = (req) => req.tenantId;
+
 // GSTR-2B import (simulates GSP/ASP pull from GST Portal) + reconciliation
 router.post('/gstr2b/import', requireModule('gst', 'can_create'), async (req, res) => {
-  const { period, lines = [] } = req.body; // YYYY-MM
+  const { period, lines = [] } = req.body;
   if (!period || !lines.length) return res.status(400).json({ error: 'Period and lines required' });
-  await pool.query('DELETE FROM gstr2b_lines WHERE period=?', [period]);
-  let [[ret]] = await pool.query('SELECT * FROM gst_returns WHERE return_type=\'GSTR2B\' AND period=?', [period]);
+  await pool.query('DELETE FROM gstr2b_lines WHERE tenant_id=? AND period=?', [tid(req), period]);
+  let [[ret]] = await pool.query('SELECT * FROM gst_returns WHERE tenant_id=? AND return_type=\'GSTR2B\' AND period=?', [tid(req), period]);
   if (!ret) {
-    const [r] = await pool.query('INSERT INTO gst_returns (return_type,period,status) VALUES (\'GSTR2B\',?,\'Imported\')', [period]);
+    const [r] = await pool.query('INSERT INTO gst_returns (tenant_id,return_type,period,status) VALUES (?,\'GSTR2B\',?,\'Imported\')', [tid(req), period]);
     ret = { id: r.insertId };
   }
   for (const ln of lines) {
     await pool.query(
-      `INSERT INTO gstr2b_lines (return_id,period,vendor_gstin,vendor_name,invoice_no,invoice_date,taxable_value,tax_amount,invoice_value)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      [ret.id, period, ln.vendor_gstin, ln.vendor_name || '', ln.invoice_no, ln.invoice_date || null, ln.taxable_value || 0, ln.tax_amount || 0, ln.invoice_value || 0]);
+      `INSERT INTO gstr2b_lines (tenant_id,return_id,period,vendor_gstin,vendor_name,invoice_no,invoice_date,taxable_value,tax_amount,invoice_value)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [tid(req), ret.id, period, ln.vendor_gstin, ln.vendor_name || '', ln.invoice_no, ln.invoice_date || null, ln.taxable_value || 0, ln.tax_amount || 0, ln.invoice_value || 0]);
   }
   await pool.query('UPDATE gst_returns SET status=\'Reconciled\' WHERE id=?', [ret.id]);
   await logAudit(req, 'GSTR2B_IMPORT', 'gst', `${period} · ${lines.length} lines`);
@@ -26,10 +28,10 @@ router.post('/gstr2b/import', requireModule('gst', 'can_create'), async (req, re
 // Reconcile GSTR-2B vs ERP vendor bills (POs)
 router.get('/gstr2b/reconcile', requireModule('gst'), async (req, res) => {
   const period = req.query.period || new Date().toISOString().slice(0, 7);
-  const [lines] = await pool.query('SELECT * FROM gstr2b_lines WHERE period=? ORDER BY invoice_date', [period]);
+  const [lines] = await pool.query('SELECT * FROM gstr2b_lines WHERE tenant_id=? AND period=? ORDER BY invoice_date', [tid(req), period]);
   const [pos] = await pool.query(
-    `SELECT p.*, v.gstin vendor_gstin, v.name vendor_name FROM purchase_orders p JOIN vendors v ON v.id=p.vendor_id
-     WHERE DATE_FORMAT(p.order_date,'%Y-%m')=?`, [period]);
+    `SELECT p.*, v.gstin vendor_gstin, v.name vendor_name FROM purchase_orders p JOIN vendors v ON v.id=p.vendor_id AND v.tenant_id=?
+     WHERE p.tenant_id=? AND DATE_FORMAT(p.order_date,'%Y-%m')=?`, [tid(req), tid(req), period]);
   const poByKey = {};
   for (const p of pos) poByKey[`${p.vendor_gstin}|${p.po_no}`] = p;
   const erpByGstinInv = {};
@@ -50,7 +52,6 @@ router.get('/gstr2b/reconcile', requireModule('gst'), async (req, res) => {
     await pool.query('UPDATE gstr2b_lines SET match_status=?, erp_po_id=? WHERE id=?', [status, po?.id || null, ln.id]);
     results.push({ ...ln, match_status: status, erp_po_id: po?.id || null, erp_value: erpValue });
   }
-  // ERP bills missing from portal
   const missingInPortal = pos.filter(p => !matchedPoIds.has(p.id)).map(p => ({ ...p, match_status: 'MissingInPortal' }));
   const summary = {
     total: results.length, matched: results.filter(r => r.match_status === 'Matched').length,
@@ -63,12 +64,12 @@ router.get('/gstr2b/reconcile', requireModule('gst'), async (req, res) => {
 
 // GSTR-1 / GSTR-3B JSON export from issued invoices
 router.get('/:type/export', requireModule('gst', 'can_export'), async (req, res) => {
-  const type = req.params.type.toUpperCase(); // GSTR1 | GSTR3B
+  const type = req.params.type.toUpperCase();
   const period = req.query.period || new Date().toISOString().slice(0, 7);
   const [docs] = await pool.query(
     `SELECT d.*, c.name customer_name, c.gstin customer_gstin, c.state_code
-     FROM sales_documents d JOIN customers c ON c.id=d.customer_id
-     WHERE d.doc_type IN ('TaxInvoice','CreditNote','DebitNote') AND DATE_FORMAT(d.doc_date,'%Y-%m')=?`, [period]);
+     FROM sales_documents d JOIN customers c ON c.id=d.customer_id AND c.tenant_id=?
+     WHERE d.tenant_id=? AND d.doc_type IN ('TaxInvoice','CreditNote','DebitNote') AND DATE_FORMAT(d.doc_date,'%Y-%m')=?`, [tid(req), tid(req), period]);
   let payload;
   if (type === 'GSTR1') {
     payload = {
@@ -100,37 +101,35 @@ router.get('/:type/export', requireModule('gst', 'can_export'), async (req, res)
       doc_count: docs.length
     };
   }
-  // record return
   const rtype = type === 'GSTR1' ? 'GSTR1' : 'GSTR3B';
   await pool.query(
-    `INSERT INTO gst_returns (return_type,period,status,payload) VALUES (?,?, 'Prepared', ?)
-     ON DUPLICATE KEY UPDATE status='Prepared', payload=VALUES(payload)`, [rtype, period, JSON.stringify(payload)]);
+    `INSERT INTO gst_returns (tenant_id,return_type,period,status,payload) VALUES (?,?,?, 'Prepared', ?)
+     ON DUPLICATE KEY UPDATE status='Prepared', payload=VALUES(payload)`, [tid(req), rtype, period, JSON.stringify(payload)]);
   await logAudit(req, 'GST_EXPORT', rtype, period);
   res.setHeader('Content-Disposition', `attachment; filename="${rtype}_${period}.json"`);
   res.json(payload);
 });
 
-// file return (mark submitted — DSC/EVC placeholder)
 router.post('/:type/file', requireModule('gst', 'can_approve'), async (req, res) => {
   const rtype = req.params.type.toUpperCase();
-  const { period, mode } = req.body; // DSC | EVC
+  const { period, mode } = req.body;
   await pool.query(
-    `INSERT INTO gst_returns (return_type,period,status,reference_no,filed_at) VALUES (?,?, 'Filed', ?, NOW())
+    `INSERT INTO gst_returns (tenant_id,return_type,period,status,reference_no,filed_at) VALUES (?,?,?, 'Filed', ?, NOW())
      ON DUPLICATE KEY UPDATE status='Filed', reference_no=VALUES(reference_no), filed_at=NOW()`,
-    [rtype, period, `ACK-${Date.now().toString().slice(-10)}`]);
-  if (rtype === 'GSTR1') await pool.query('UPDATE sales_documents SET gst_status=\'Filed\' WHERE DATE_FORMAT(doc_date,\'%Y-%m\')=? AND doc_type=\'TaxInvoice\'', [period]);
+    [tid(req), rtype, period, `ACK-${Date.now().toString().slice(-10)}`]);
+  if (rtype === 'GSTR1') await pool.query('UPDATE sales_documents SET gst_status=\'Filed\' WHERE tenant_id=? AND DATE_FORMAT(doc_date,\'%Y-%m\')=? AND doc_type=\'TaxInvoice\'', [tid(req), period]);
   await logAudit(req, 'GST_FILE', rtype, `${period} via ${mode || 'EVC'}`);
   res.json({ ok: true, mode: mode || 'EVC' });
 });
 
 router.get('/returns', requireModule('gst'), async (req, res) => {
-  const [rows] = await pool.query('SELECT id,return_type,period,status,reference_no,filed_at FROM gst_returns ORDER BY period DESC, return_type');
+  const [rows] = await pool.query('SELECT id,return_type,period,status,reference_no,filed_at FROM gst_returns WHERE tenant_id=? ORDER BY period DESC, return_type', [tid(req)]);
   res.json({ returns: rows });
 });
 
-// GST portal connection status
+// GST portal connection status (per-tenant GSTIN from tenants table)
 router.get('/status', async (req, res) => {
-  res.json({ connected: true, portal: 'GST Portal (GSP Sandbox)', gstin: '27AAAAA0000A1Z5', last_sync: new Date().toISOString() });
+  res.json({ connected: true, portal: 'GST Portal (GSP Sandbox)', gstin: req.tenant?.gstin || '27AAAAA0000A1Z5', last_sync: new Date().toISOString() });
 });
 
 module.exports = router;
