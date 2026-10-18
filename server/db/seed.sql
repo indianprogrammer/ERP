@@ -25,7 +25,7 @@ INSERT INTO plans (id, name, slug, price_monthly, max_users, max_vendors, max_cu
 -- Staff roles for super admin are scoped per-tenant; super admin user is role_id NULL / handled in auth
 
 INSERT INTO users (id, username, password_hash, full_name, email, tenant_id, role_id, must_change_password, is_active) VALUES
-(1,'superadmin','$2b$10$EL7sD14zkdSu/mOtNO4K1uMXr/AudxC61kifXOSswIqaQQ9A725Am','Super Administrator','superadmin@x3m.local',NULL,NULL,1,1);
+(1,'superadmin','$2b$10$CMiDVIIOjsFups4jOyj8/uMLwIUZWcN18HbyviYnqcJwUbxIdxdo.','Super Administrator','superadmin@x3m.local',NULL,NULL,1,1);
 
 -- Sample tenant: Acme Corporation
 INSERT INTO tenants (id,name,slug,domain,plan,status,gstin,address) VALUES
@@ -40,9 +40,9 @@ INSERT INTO staff_roles (id,tenant_id,name,description,is_system) VALUES
 (6,1,'Inventory Clerk','Items, warehouses, stock',0);
 
 INSERT INTO users (id,tenant_id,username,password_hash,full_name,email,role_id,must_change_password,is_active) VALUES
-(2,1,'admin','$2b$10$EL7sD14zkdSu/mOtNO4K1uMXr/AudxC61kifXOSswIqaQQ9A725Am','Acme Admin','admin@acme.in',1,1,1),
-(3,1,'sales','$2b$10$EL7sD14zkdSu/mOtNO4K1uMXr/AudxC61kifXOSswIqaQQ9A725Am','Priya Sharma','sales@acme.in',3,0,1),
-(4,1,'purchase','$2b$10$EL7sD14zkdSu/mOtNO4K1uMXr/AudxC61kifXOSswIqaQQ9A725Am','Rahul Mehta','purchase@acme.in',2,0,1);
+(2,1,'admin','$2b$10$CMiDVIIOjsFups4jOyj8/uMLwIUZWcN18HbyviYnqcJwUbxIdxdo.','Acme Admin','admin@acme.in',1,1,1),
+(3,1,'sales','$2b$10$CMiDVIIOjsFups4jOyj8/uMLwIUZWcN18HbyviYnqcJwUbxIdxdo.','Priya Sharma','sales@acme.in',3,0,1),
+(4,1,'purchase','$2b$10$CMiDVIIOjsFups4jOyj8/uMLwIUZWcN18HbyviYnqcJwUbxIdxdo.','Rahul Mehta','purchase@acme.in',2,0,1);
 
 INSERT INTO role_permissions (role_id, module, can_create, can_read, can_update, can_delete, can_export, can_approve) VALUES
 (1,'procurement',1,1,1,1,1,1),(1,'sales',1,1,1,1,1,1),(1,'inventory',1,1,1,1,1,1),
