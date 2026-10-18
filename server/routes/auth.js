@@ -32,8 +32,12 @@ router.post('/login', async (req, res) => {
       return res.status(403).json({ error: 'Organization account is not active' });
     }
     tenantId = trows[0].id;
-  } else if (req.session?.user && req.session.user.tenant_id) {
-    tenantId = req.session.user.tenant_id;
+  } else if (req.tenant) {
+    // Subdomain login (e.g. acme.localhost:3000) — scope to resolved tenant
+    if (req.tenant.status !== 'active' && req.tenant.status !== 'trial') {
+      return res.status(403).json({ error: 'Organization account is not active' });
+    }
+    tenantId = req.tenant.id;
   } else {
     // Bare-domain login: allow only super admins (tenant_id NULL)
     const [rows] = await pool.query(
