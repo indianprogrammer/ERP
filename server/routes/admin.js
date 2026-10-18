@@ -81,4 +81,22 @@ router.patch('/tenants/:id/status', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Super-admin only: edit company details
+router.put('/tenants/:id', requireAuth, async (req, res) => {
+  if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Super admin only' });
+  const { name, slug, domain, plan, status } = req.body || {};
+  if (!name || !slug) return res.status(400).json({ error: 'Name and slug required' });
+  if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug)) {
+    return res.status(400).json({ error: 'Slug must be lowercase alphanumeric with hyphens' });
+  }
+  // check slug uniqueness excluding self
+  const [existing] = await pool.query('SELECT id FROM tenants WHERE slug=? AND id<>?', [slug, req.params.id]);
+  if (existing.length) throw new Error('Organization slug already taken');
+  await pool.query(
+    'UPDATE tenants SET name=?, slug=?, domain=?, plan=?, status=? WHERE id=?',
+    [name, slug, domain || null, plan || 'starter', status || 'trial', req.params.id]);
+  await logAudit(req, 'TENANT_UPDATE', 'tenants', `id=${req.params.id} name=${name} slug=${slug}`);
+  res.json({ ok: true });
+});
+
 module.exports = router;
