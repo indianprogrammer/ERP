@@ -89,7 +89,7 @@ App.registerView('admin', {
       </div>`,
       `<button class="btn btn-outline" onclick="UI.closeModal()">Cancel</button>
        <button class="btn btn-primary" id="o-save">${id ? 'Save Changes' : 'Create Company'}</button>`);
-    b.querySelector('#o-save').onclick = async () => {
+    document.getElementById('o-save').onclick = async () => {
       const d = UI.formValues('of');
       if (!d.name || !d.slug) { UI.toast('Name and slug required', 'err'); return; }
       if (!id && (!d.admin_email || !d.admin_password)) { UI.toast('Email and password required for new company', 'err'); return; }
@@ -161,7 +161,7 @@ App.registerView('admin', {
       </div>`,
       `<button class="btn btn-outline" onclick="UI.closeModal()">Cancel</button>
        <button class="btn btn-primary" id="p-save">${id ? 'Save Changes' : 'Create Plan'}</button>`);
-    b.querySelector('#p-save').onclick = async () => {
+    document.getElementById('p-save').onclick = async () => {
       const d = UI.formValues('pf');
       if (!d.name || !d.slug) { UI.toast('Name and slug required', 'err'); return; }
       try {
