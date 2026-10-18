@@ -20,7 +20,7 @@ Object.assign(App, {
     document.getElementById('user-role').textContent = `(${user.role})`;
     this.applyPermissions();
     this.loadNotifications();
-    this.navigate(location.hash || '#/dashboard');
+    this.navigate('#/dashboard');
   },
   showLogin() {
     document.getElementById('app').classList.add('hidden');
