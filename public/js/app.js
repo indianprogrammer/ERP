@@ -21,6 +21,9 @@ Object.assign(App, {
     const tenantEl = document.getElementById('tenant-name');
     if (user.tenant_id) { tenantEl.textContent = `· ${(user.tenant && user.tenant.name) || 'Organization'}`; tenantEl.style.display='inline'; }
     else { tenantEl.textContent = 'Super Admin'; tenantEl.style.display='inline'; }
+    if (user.isSuperAdmin) {
+      document.querySelectorAll('.sa-hide').forEach(el => el.style.display = 'none');
+    }
     this.applyPermissions();
     this.loadNotifications();
     if (user.isSuperAdmin) { this.navigate('#/admin'); }
