@@ -148,9 +148,8 @@ Built as a lightweight REST API (Express) + a dependency-free vanilla-JS single-
 | **Frontend** | Vanilla JS SPA (hash router), HTML5, hand-written CSS (Material 3 / X3M Admin theme) — **no build step** |
 | **Backend** | Node.js, Express 5 |
 | **Database** | MariaDB / MySQL 8 (via `mysql2` connection pool) |
-| **Auth** | `express-session` (web) + `jsonwebtoken` Bearer tokens (mobile / MCP / external clients) + `bcryptjs` |
+| **Auth** | `express-session` (web) + `jsonwebtoken` Bearer tokens (MCP / external clients) + `bcryptjs` |
 | **AI / MCP** | `@modelcontextprotocol/sdk` — stdio + streamable-HTTP transports |
-| **Mobile** | Flutter (`mobile/`) — Android & iOS |
 | **Config** | `dotenv` |
 | **Screenshots** | `puppeteer-core` + system Chrome (dev tool) |
 
@@ -165,6 +164,7 @@ ERP/
 ├── .env.example                 # Environment template
 ├── scripts/
 │   ├── init-db.sh               # Bootstraps a dedicated MariaDB instance + DB/user
+│   ├── erpctl.sh                # start / stop / restart / status for API + MCP + DB
 │   └── screenshots.js           # Auto-captures module screenshots
 ├── server/
 │   ├── db/
@@ -180,7 +180,7 @@ ERP/
 │   │   └── tenant.js            # Host/subdomain → tenant resolution
 │   └── routes/
 │       ├── auth.js              # Login / logout / change-password / token exchange
-│       ├── company.js           # Company profile API (mobile & external clients)
+│       ├── company.js           # Company profile API (external clients)
 │       ├── mcp.js               # Streamable-HTTP MCP endpoint (/api/mcp)
 │       ├── docs.js              # API documentation routes
 │       ├── vendors.js  rfqs.js  pos.js  warranties.js
@@ -191,11 +191,6 @@ ERP/
 ├── mcp/
 │   ├── server.js                # MCP tool definitions (company, sales, CRM, inventory…)
 │   └── stdio.js                 # stdio transport entry (npm run mcp)
-├── mobile/                      # Flutter app (login, dashboard, company, customers, items)
-│   ├── pubspec.yaml
-│   └── lib/
-│       ├── main.dart  api_client.dart
-│       └── screens/             # login, home, dashboard, company, customers, items
 ├── public/
 │   ├── index.html               # App shell (login, top bar, drawer)
 │   ├── css/app.css              # Responsive Material 3 theme
@@ -224,8 +219,10 @@ npm install
 ### 2. Configure environment
 ```bash
 cp .env.example .env
-# edit .env  (DB credentials, SESSION_SECRET, JWT_SECRET, PORT)
+# edit .env  (DB credentials, SESSION_SECRET, JWT_SECRET, HOST=0.0.0.0, PORT=3000)
 ```
+
+All host/port settings come from `.env` — the API server binds `HOST:PORT`, the HTTP MCP endpoint and API docs serve from it, and the MCP stdio server + scripts default to `http://<connect-host>:<PORT>` derived from the same variables.
 
 ### 3. Create the database & schema
 Option A — use the bundled bootstrap (spins up a dedicated MariaDB on port **3307**, no root required):
@@ -246,7 +243,11 @@ Then load `server/db/schema.sql` and `server/db/seed.sql`.
 ### 4. Run
 ```bash
 npm start
-# → http://localhost:3000
+# → http://localhost:3000   (from HOST/PORT in .env)
+
+# or manage the stack (MariaDB + API + MCP) as a service:
+npm run ctl start      # / restart / stop / status / logs
+npm run ctl mcp        # stdio MCP in the foreground
 ```
 
 ### Default credentials
@@ -286,6 +287,7 @@ DB_PASSWORD=STRONG_PASSWORD
 DB_NAME=erp
 SESSION_SECRET=<output of: openssl rand -hex 32>
 NODE_ENV=production
+HOST=0.0.0.0
 PORT=3000
 ```
 
@@ -396,9 +398,9 @@ Interactive documentation is served by the app itself:
 - **HTML docs:** `GET /docs` (or `/api/docs`) — browsable endpoint reference + MCP guide
 - **OpenAPI 3.1 spec:** `GET /api/docs/openapi.json`
 
-### Authentication (tokens for mobile / MCP / external clients)
+### Authentication (tokens for MCP / external clients)
 
-The web UI uses session cookies. External clients (mobile app, MCP server, scripts) use **Bearer JWTs**:
+The web UI uses session cookies. External clients (MCP server, scripts, future mobile apps) use **Bearer JWTs**:
 
 ```bash
 # 1. Exchange credentials for tokens (tenant users only — super-admin accounts cannot get tokens)
@@ -482,6 +484,8 @@ The Express server exposes a stateless MCP endpoint at **`POST /api/mcp`**:
 npm run mcp   # runs mcp/stdio.js
 ```
 
+`ERP_API_URL` is optional — it defaults to `http://<connect-host>:<PORT>` from the project `.env`.
+
 ```json
 {
   "mcpServers": {
@@ -489,7 +493,6 @@ npm run mcp   # runs mcp/stdio.js
       "command": "node",
       "args": ["/path/to/ERP/mcp/stdio.js"],
       "env": {
-        "ERP_API_URL": "http://localhost:3000",
         "ERP_TENANT": "acme",
         "ERP_USERNAME": "admin",
         "ERP_PASSWORD": "changeme123"
@@ -500,21 +503,6 @@ npm run mcp   # runs mcp/stdio.js
 ```
 
 (`ERP_TOKEN` can be set instead of username/password to skip the credential exchange.)
-
----
-
-## 📱 Mobile App (Flutter)
-
-A Flutter app lives in [`mobile/`](mobile/): login via `/api/auth/token`, then dashboard KPIs, company profile editing, customers, inventory items, and expenses (project-based or individual).
-
-```bash
-cd mobile
-flutter create --platforms=android,ios .   # generate platform folders (first time only)
-flutter pub get
-flutter run                                 # Android emulator hits http://10.0.2.2:3000
-```
-
-The server URL is configurable on the login screen (Server settings). Use your machine's LAN IP for a physical device.
 
 ---
 

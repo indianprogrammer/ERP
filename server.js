@@ -44,5 +44,5 @@ for (const mod of ['dashboard', 'vendors', 'rfqs', 'pos', 'customers', 'salesdoc
 app.use(express.static(path.join(__dirname, 'public')));
 app.get(/^\/(?!api).*/, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`X3M ERP SAAS running at http://localhost:${PORT}`));
+const { HOST, PORT } = require('./server/lib/addr');
+app.listen(PORT, HOST, () => console.log(`X3M ERP SAAS running at http://${HOST === '0.0.0.0' || HOST === '::' ? 'localhost' : HOST}:${PORT}`));

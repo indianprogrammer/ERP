@@ -115,7 +115,7 @@ router.post('/logout', (req, res) => {
   });
 });
 
-// --- API tokens (Bearer JWT for mobile app, MCP server, external clients) ---
+// --- API tokens (Bearer JWT for MCP server, external clients) ---
 // Tenant users only. Super-admin accounts (tenant_id NULL) cannot obtain tokens.
 
 router.post('/token', async (req, res) => {

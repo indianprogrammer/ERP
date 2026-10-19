@@ -71,13 +71,13 @@
 Transport:   streamable HTTP (POST, stateless)
 Authorization: Bearer &lt;token from /api/auth/token&gt;</pre>
     <h4 style="margin:12px 0 6px">2. stdio — run as a local subprocess (Claude Desktop / Claude Code)</h4>
-    <pre>{
+    <pre>ERP_API_URL is optional — defaults to http://&lt;connect-host&gt;:&lt;PORT&gt; from the project .env
+{
   "mcpServers": {
     "x3m-erp": {
       "command": "node",
       "args": ["/path/to/ERP/mcp/stdio.js"],
       "env": {
-        "ERP_API_URL": "http://localhost:3000",
         "ERP_TENANT": "acme",
         "ERP_USERNAME": "admin",
         "ERP_PASSWORD": "changeme123"

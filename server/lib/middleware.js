@@ -2,7 +2,7 @@ const pool = require('../db/pool');
 const { verifyAccessToken } = require('./tokens');
 
 /* Current authenticated user — works for both session (web UI) and
- * Bearer JWT (mobile app, MCP server, external API clients). */
+ * Bearer JWT (MCP server, external API clients). */
 function authUser(req) {
   return req.user || req.session?.user || null;
 }

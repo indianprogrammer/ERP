@@ -5,8 +5,8 @@
  * Authenticates against the ERP API with a tenant user account and exposes
  * company, dashboard, customers, items, vendors, sales, CRM and expense tools.
  *
- * Environment:
- *   ERP_API_URL   Base URL of the running ERP (default http://localhost:3000)
+ * Environment (all optional — defaults come from the project .env HOST/PORT):
+ *   ERP_API_URL   Base URL of the running ERP (default http://<connect-host>:<PORT>)
  *   ERP_USERNAME  Tenant username
  *   ERP_PASSWORD  Tenant password
  *   ERP_TENANT    Tenant slug (company subdomain), e.g. acme
@@ -15,8 +15,9 @@
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { buildMcpServer } = require('./server');
+const { BASE_URL } = require('../server/lib/addr');
 
-const API_URL = (process.env.ERP_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+const API_URL = (process.env.ERP_API_URL || BASE_URL).replace(/\/$/, '');
 
 async function getToken() {
   if (process.env.ERP_TOKEN) return process.env.ERP_TOKEN;

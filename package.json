@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
+    "ctl": "bash scripts/erpctl.sh",
     "dbinit": "bash scripts/init-db.sh",
     "mcp": "node mcp/stdio.js",
     "screenshots": "node scripts/screenshots.js"

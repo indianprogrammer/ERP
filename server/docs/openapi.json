@@ -182,7 +182,7 @@
     }
   },
   "tags": [
-    { "name": "Auth", "description": "Token exchange for mobile, MCP and external clients" },
+    { "name": "Auth", "description": "Token exchange for MCP and external clients" },
     { "name": "Company", "description": "Own company profile and settings" },
     { "name": "Dashboard", "description": "KPIs" },
     { "name": "Customers" }, { "name": "Items" }, { "name": "Vendors" },

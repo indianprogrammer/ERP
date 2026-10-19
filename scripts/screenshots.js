@@ -2,8 +2,9 @@
 const puppeteer = require('puppeteer-core');
 const fs = require('fs');
 const path = require('path');
+const { BASE_URL } = require('../server/lib/addr');
 
-const BASE = process.env.BASE_URL || 'http://localhost:3000';
+const BASE = process.env.BASE_URL || BASE_URL;
 const OUT = path.join(__dirname, '..', 'screenshots');
 const CHROME = process.env.CHROME_PATH || '/opt/X3M/chrome/chrome';
 

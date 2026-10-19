@@ -3,9 +3,10 @@ const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/ser
 const { buildMcpServer } = require('../../mcp/server');
 const { signAccessToken } = require('../lib/tokens');
 const { authUser } = require('../lib/middleware');
+const { BASE_URL } = require('../lib/addr');
 
 const router = express.Router();
-const INTERNAL_API = () => process.env.INTERNAL_API_URL || `http://127.0.0.1:${process.env.PORT || 3000}`;
+const INTERNAL_API = () => process.env.INTERNAL_API_URL || BASE_URL;
 
 /* Stateless Streamable HTTP MCP endpoint.
  * Auth: same Bearer JWT as the rest of the API (Authorization: Bearer <token>).
