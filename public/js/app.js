@@ -8,27 +8,33 @@ Object.assign(App, {
   async checkAuth() {
     try {
       const { user } = await UI.api('/api/auth/me');
-      this.setUser(user);
+      this.user = user;
+      this.afterAuth();
     } catch { this.showLogin(); }
   },
-  setUser(user) {
-    this.user = user;
+  afterAuth() {
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('pwd-screen').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
-    document.getElementById('user-name').textContent = user.fullName || user.username;
-    document.getElementById('user-role').textContent = `(${user.role})`;
+    document.getElementById('user-name').textContent = this.user.fullName || this.user.username;
+    document.getElementById('user-role').textContent = `(${this.user.role})`;
     const tenantEl = document.getElementById('tenant-name');
-    if (user.tenant_id) { tenantEl.textContent = `· ${(user.tenant && user.tenant.name) || 'Organization'}`; tenantEl.style.display='inline'; }
+    if (this.user.tenant_id) { tenantEl.textContent = `· ${(this.user.tenant && this.user.tenant.name) || 'Organization'}`; tenantEl.style.display='inline'; }
     else { tenantEl.textContent = 'Super Admin'; tenantEl.style.display='inline'; }
-    if (user.isSuperAdmin) {
+    if (this.user.isSuperAdmin) {
       document.querySelectorAll('.sa-hide').forEach(el => el.style.display = 'none');
     }
     this.applyPermissions();
     this.loadNotifications();
-    if (user.isSuperAdmin) { this.navigate('#/dashboard'); }
-    else { this.navigate('#/dashboard'); }
+    if (!location.hash || location.hash === '#/' || location.hash === '#') {
+      if (this.user.isSuperAdmin) this.navigate('#/admin');
+      else this.navigate('#/dashboard');
+    }
     this.route();
+  },
+  setUser(user) {
+    this.user = user;
+    this.afterAuth();
   },
   showLogin() {
     document.getElementById('app').classList.add('hidden');
@@ -47,7 +53,7 @@ Object.assign(App, {
     return !!(p && p[perm]);
   },
   applyPermissions() {
-    const map = { procurement: 'procurement', sales: 'sales', projects: 'projects', inventory: 'inventory', crm: 'crm', gst: 'gst', staff: 'admin', admin: null };
+    const map = { procurement: 'procurement', sales: 'sales', projects: 'projects', inventory: 'inventory', crm: 'crm', gst: 'gst', staff: 'admin', admin: null, settings: 'admin' };
     const adminLink = document.querySelector('.sidebar a[data-nav="admin"]');
     if (this.user && this.user.isSuperAdmin) {
       document.querySelectorAll('.sidebar a[data-nav]').forEach(a => {
@@ -59,6 +65,7 @@ Object.assign(App, {
     }
     if (adminLink) adminLink.style.display = 'none';
     document.querySelectorAll('.sidebar a[data-nav]').forEach(a => {
+      if (a.dataset.nav === 'admin') return;
       const mod = map[a.dataset.nav];
       if (mod && !this.can(mod) && a.dataset.nav !== 'dashboard') a.style.display = 'none';
       else a.style.display = '';
@@ -67,13 +74,21 @@ Object.assign(App, {
   // ---------- router ----------
   navigate(hash) { location.hash = hash || '#/dashboard'; },
   async route() {
-    const raw = (location.hash || '#/dashboard').slice(2);
+    const raw = location.hash.slice(2);
     const [path, qs] = raw.split('?');
     const parts = path.split('/').filter(Boolean);
     const params = Object.fromEntries(new URLSearchParams(qs || ''));
-    const name = parts[0] || 'dashboard';
+    const name = parts[0];
+    if (!name) {
+      if (this.user.isSuperAdmin) { location.hash = '#/admin'; return; }
+      else { location.hash = '#/dashboard'; return; }
+    }
     if (this.user && this.user.isSuperAdmin && name !== 'admin') {
       location.hash = '#/admin';
+      return;
+    }
+    if (this.user && !this.user.isSuperAdmin && name === 'admin') {
+      location.hash = '#/dashboard';
       return;
     }
     const view = this.views[name] || this.views.dashboard;

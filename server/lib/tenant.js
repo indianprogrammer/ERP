@@ -8,9 +8,14 @@ async function resolveTenant(req, res, next) {
   const host = (req.hostname || '').toLowerCase().split(':')[0];
   const parts = host.split('.');
 
-  // Super-admin / bare domain: no tenant context
+  // Super-admin / bare domain: no tenant context unless user has a session tenant
   if (parts.length <= 2 || host === 'localhost' || host === '127.0.0.1') {
-    req.tenant = null;
+    if (req.session?.user?.tenant_id) {
+      try {
+        const [rows] = await pool.query('SELECT * FROM tenants WHERE id=?', [req.session.user.tenant_id]);
+        if (rows[0]) req.tenant = rows[0];
+      } catch (e) { /* ignore */ }
+    }
     return next();
   }
 
@@ -43,18 +48,30 @@ async function resolveTenant(req, res, next) {
   next();
 }
 
-function requireTenant(req, res, next) {
-  if (!req.tenant) return res.status(400).json({ error: 'Tenant context required' });
+async function requireTenant(req, res, next) {
+  if (!req.tenant) {
+    const sessionTenantId = req.session?.user?.tenant_id;
+    if (sessionTenantId) {
+      try {
+        const [rows] = await pool.query('SELECT * FROM tenants WHERE id=?', [sessionTenantId]);
+        if (rows[0]) {
+          req.tenant = rows[0];
+          return next();
+        }
+      } catch { }
+    }
+    return res.status(400).json({ error: 'Tenant context required' });
+  }
   next();
 }
 
 function tenantScope(req) {
-  return req.tenant ? req.tenant.id : null;
+  return req.tenant ? req.tenant.id : (req.session?.user?.tenant_id || null);
 }
 
 function isSuperAdmin(req) {
   const u = req.session?.user;
-  return !!(u && (!u.tenant_id || u.role === 'Super Admin'));
+  return !!(u && !u.tenant_id);
 }
 
 module.exports = { resolveTenant, requireTenant, tenantScope, isSuperAdmin };

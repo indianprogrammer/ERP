@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool, logAudit, requireModule } = require('../lib/middleware');
 const { deductStockForDoc } = require('./stock');
+const { getSettings } = require('./settings');
 const router = express.Router();
 
 const SELLER = { name: 'X3M Systems Pvt Ltd', gstin: '27AAAAA0000A1Z5', pan: 'AAAAA0000A', address: 'BKC, Mumbai 400051', state_code: '27' };
@@ -102,11 +103,13 @@ router.get('/:id/eway-json', requireModule('sales', 'can_export'), async (req, r
   if (!doc) return res.status(404).json({ error: 'Not found' });
   const [items] = await pool.query('SELECT * FROM sales_doc_items WHERE doc_id=? AND tenant_id=?', [req.params.id, tid(req)]);
   const supplyType = doc.place_of_supply?.startsWith('Maharashtra') ? 'O' : 'S';
+  const seller = await getSettings(tid(req));
   const json = {
     version: '1.0.3', transactionType: 'OUTWARD', supplyType,
     docType: doc.doc_type === 'TaxInvoice' ? 'INV' : 'CHL',
     docNo: doc.doc_no, docDate: new Date(doc.doc_date).toLocaleDateString('en-GB'),
-    fromGstin: SELLER.gstin, fromTrdName: SELLER.name, fromAddr1: SELLER.address, fromStateCode: Number(SELLER.state_code),
+    fromGstin: seller.company_gstin || SELLER.gstin, fromTrdName: seller.company_name || SELLER.name,
+    fromAddr1: seller.company_address || SELLER.address, fromStateCode: Number(seller.company_state_code || SELLER.state_code),
     toGstin: doc.customer_gstin || 'URP', toTrdName: doc.customer_name, toAddr1: doc.customer_address || '', toStateCode: Number(doc.customer_state || 27),
     totalValue: Number(doc.taxable_value),
     cgstValue: Number(doc.cgst), sgstValue: Number(doc.sgst), igstValue: Number(doc.igst), cstValue: 0, epsgValue: 0,
@@ -167,7 +170,11 @@ router.post('/:id/receive-payment', requireModule('sales', 'can_update'), async 
     [tid(req), receipt_no, doc.customer_id, doc.id, amount || 0, mode || 'Bank', ref_no || '', receipt_date || null, `Against ${doc.doc_no}`]);
   await pool.query('UPDATE sales_documents SET paid_amount = paid_amount + ? WHERE id=? AND tenant_id=?', [amount || 0, doc.id, tid(req)]);
   await logAudit(req, 'PAYMENT_RECEIVED', 'receipt', `${receipt_no} ₹${amount} vs ${doc.doc_no}`);
-  res.json({ receipt_no });
+  const [[receipt]] = await pool.query(
+    `SELECT r.*, c.name customer_name, d.doc_no FROM receipts r
+     JOIN customers c ON c.id=r.customer_id LEFT JOIN sales_documents d ON d.id=r.doc_id
+     WHERE r.tenant_id=? AND r.receipt_no=?`, [tid(req), receipt_no]);
+  res.json({ receipt_no, receipt });
 });
 
 router.post('/:id/ship', requireModule('sales', 'can_update'), async (req, res) => {

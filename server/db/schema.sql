@@ -4,7 +4,7 @@ DROP TABLE IF EXISTS audit_logs, notifications, gst_returns, gstr2b_lines, lead_
   expenses, receipts, sales_doc_items, sales_documents, lead_stages, leads,
   stock_movements, stock_levels, warehouses, items,
   po_items, purchase_orders, shipments, warranties, vendor_quotes, rfqs, vendors, customers,
-  role_permissions, staff_roles, users, subscriptions, plans, tenants;
+  company_settings, role_permissions, staff_roles, users, subscriptions, plans, tenants;
 SET FOREIGN_KEY_CHECKS=1;
 
 -- Tenants (SAAS accounts)
@@ -23,6 +23,31 @@ CREATE TABLE tenants (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_tenant_slug (slug),
   INDEX idx_tenant_domain (domain)
+) ENGINE=InnoDB;
+
+-- Company settings (per-tenant branding, invoicing & payment details)
+CREATE TABLE company_settings (
+  tenant_id INT PRIMARY KEY,
+  invoice_theme VARCHAR(20) NOT NULL DEFAULT 'classic',
+  receipt_theme VARCHAR(20) NOT NULL DEFAULT 'simple',
+  receipt_page_size VARCHAR(10) NOT NULL DEFAULT 'a5',
+  invoice_page_size VARCHAR(10) NOT NULL DEFAULT 'a4',
+  terms_conditions TEXT,
+  bank_name VARCHAR(120) DEFAULT '',
+  bank_account_no VARCHAR(40) DEFAULT '',
+  bank_ifsc VARCHAR(20) DEFAULT '',
+  bank_branch VARCHAR(120) DEFAULT '',
+  upi_id VARCHAR(80) DEFAULT '',
+  qr_image TEXT,
+  company_name VARCHAR(150) DEFAULT '',
+  company_address VARCHAR(400) DEFAULT '',
+  company_gstin CHAR(15) DEFAULT '',
+  company_pan VARCHAR(20) DEFAULT '',
+  company_state_code VARCHAR(4) DEFAULT '27',
+  company_phone VARCHAR(30) DEFAULT '',
+  company_email VARCHAR(120) DEFAULT '',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- SAAS plans
@@ -451,6 +476,7 @@ CREATE TABLE leads (
   email VARCHAR(120) DEFAULT '',
   value DECIMAL(14,2) NOT NULL DEFAULT 0,
   stage_id INT NOT NULL,
+  position INT NOT NULL DEFAULT 0,
   notes VARCHAR(500) DEFAULT '',
   owner_id INT NULL,
   converted_doc_id INT NULL,

@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool, logAudit, requireModule } = require('../lib/middleware');
+const { getSettings } = require('./settings');
 const router = express.Router();
 
 const tid = (req) => req.tenantId;
@@ -71,17 +72,24 @@ router.get('/:type/export', requireModule('gst', 'can_export'), async (req, res)
      FROM sales_documents d JOIN customers c ON c.id=d.customer_id AND c.tenant_id=?
      WHERE d.tenant_id=? AND d.doc_type IN ('TaxInvoice','CreditNote','DebitNote') AND DATE_FORMAT(d.doc_date,'%Y-%m')=?`, [tid(req), tid(req), period]);
   let payload;
+  const settings = await getSettings(tid(req));
+  const myGstin = settings.company_gstin || '27AAAAA0000A1Z5';
   if (type === 'GSTR1') {
+    const byCust = {};
+    for (const d of docs.filter(d => d.doc_type === 'TaxInvoice')) {
+      const key = d.customer_gstin || 'URP';
+      (byCust[key] = byCust[key] || { ctin: key, cname: d.customer_name, inv: [] }).inv.push(d);
+    }
     payload = {
-      gstin: '27AAAAA0000A1Z5', fp: period.replace('-', ''),
-      b2b: [{
-        ctin: '27AAAAA0000A1Z5', cname: 'SAMPLE',
-        inv: docs.filter(d => d.doc_type === 'TaxInvoice').map(d => ({
+      gstin: myGstin, fp: period.replace('-', ''),
+      b2b: Object.values(byCust).map(g => ({
+        ctin: g.ctin, cname: g.cname,
+        inv: g.inv.map(d => ({
           inum: d.doc_no, idt: new Date(d.doc_date).toISOString().slice(0, 10),
           val: Number(d.grand_total), pos: d.place_of_supply, typ: 'R',
           itms: [{ num: 1, itm_det: { txval: Number(d.taxable_value), camt: Number(d.cgst), samt: Number(d.sgst), iamt: Number(d.igst), csamt: 0 } }]
         }))
-      }],
+      })),
       cdn: docs.filter(d => d.doc_type === 'CreditNote' || d.doc_type === 'DebitNote').map(d => ({
         ntty: d.doc_type === 'CreditNote' ? 'C' : 'D', nt_num: d.doc_no,
         nt_dt: new Date(d.doc_date).toISOString().slice(0, 10), val: Math.abs(Number(d.grand_total))
@@ -94,7 +102,7 @@ router.get('/:type/export', requireModule('gst', 'can_export'), async (req, res)
     const cgst = docs.reduce((s, d) => s + Number(d.cgst), 0);
     const sgst = docs.reduce((s, d) => s + Number(d.sgst), 0);
     payload = {
-      gstin: '27AAAAA0000A1Z5', period, ret_type: '3B',
+      gstin: myGstin, period, ret_type: '3B',
       sup: { taxable_value: taxable, igst, cgst, sgst, cess: 0, total_tax: igst + cgst + sgst },
       inter_state_sup: { taxable_value: docs.filter(d => Number(d.igst) > 0).reduce((s, d) => s + Number(d.taxable_value), 0), igst },
       intra_state_sup: { taxable_value: docs.filter(d => Number(d.cgst) > 0).reduce((s, d) => s + Number(d.taxable_value), 0), cgst, sgst },

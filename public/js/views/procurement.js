@@ -15,7 +15,14 @@ App.registerView('procurement', {
     const body = document.getElementById('proc-body');
     const actions = document.getElementById('proc-actions');
     actions.innerHTML = '';
-    if (tab === 'quotes') { actions.innerHTML = '<button class="btn btn-primary" id="btn-new-rfq">+ New RFQ</button>'; document.getElementById('btn-new-rfq').onclick = () => this.newRfq(); this.renderQuotes(body, params); }
+    if (tab === 'quotes') {
+      if (params.new) { actions.innerHTML = ''; this.renderNewRfq(body); }
+      else {
+        actions.innerHTML = '<button class="btn btn-primary" id="btn-new-rfq">+ New RFQ</button>';
+        document.getElementById('btn-new-rfq').onclick = () => App.navigate('#/procurement?tab=quotes&new=rfq');
+        this.renderQuotes(body, params);
+      }
+    }
     if (tab === 'vendors') { actions.innerHTML = '<button class="btn btn-primary" id="btn-new-vendor">+ New Vendor</button>'; document.getElementById('btn-new-vendor').onclick = () => this.vendorForm(); this.renderVendors(body); }
     if (tab === 'pos') { actions.innerHTML = '<button class="btn btn-primary" id="btn-new-po">+ New PO</button>'; document.getElementById('btn-new-po').onclick = () => this.poForm(); this.renderPOs(body, params); }
     if (tab === 'warranties') { actions.innerHTML = '<button class="btn btn-primary" id="btn-new-warr">+ Register Serial</button>'; document.getElementById('btn-new-warr').onclick = () => this.warrantyForm(); this.renderWarranties(body); }
@@ -137,17 +144,25 @@ App.registerView('procurement', {
       } catch (e) { UI.toast(e.message, 'err'); }
     };
   },
-  async newRfq() {
+  async renderNewRfq(body) {
     const { vendors } = await UI.api('/api/vendors');
     const vs = vendors.filter(v => v.is_active);
-    const b = UI.modal('New RFQ', `
-      ${UI.field('title', 'RFQ Title *')}
-      ${UI.field('due_date', 'Due Date', '', 'date')}
-      <div id="rq-lines"></div>
-      <button class="btn btn-outline btn-sm" id="rq-add">+ Add quote line</button>`,
-      `<button class="btn btn-outline" onclick="UI.closeModal()">Cancel</button>
-       <button class="btn btn-primary" id="rq-save">Save RFQ</button>`);
-    const lines = b.querySelector('#rq-lines');
+    body.innerHTML = `
+      <div class="panel">
+        <h2>New Request for Quotes (RFQ)
+          <button class="btn btn-outline btn-sm" onclick="App.navigate('#/procurement?tab=quotes')">← All RFQs</button></h2>
+        <div class="form-grid" id="rq-meta">
+          ${UI.field('title', 'RFQ Title *')}
+          ${UI.field('due_date', 'Due Date', '', 'date')}
+        </div>
+        <div id="rq-lines" class="mt"></div>
+        <button class="btn btn-outline btn-sm" id="rq-add">+ Add quote line</button>
+        <div class="mt flex">
+          <button class="btn btn-outline" onclick="App.navigate('#/procurement?tab=quotes')">Cancel</button>
+          <button class="btn btn-primary" id="rq-save">Save RFQ</button>
+        </div>
+      </div>`;
+    const lines = document.getElementById('rq-lines');
     const addLine = () => {
       const div = document.createElement('div');
       div.className = 'form-grid card mb';
@@ -165,17 +180,17 @@ App.registerView('procurement', {
       lines.appendChild(div);
     };
     addLine(); addLine(); addLine();
-    b.querySelector('#rq-add').onclick = addLine;
-    b.querySelector('#rq-save').onclick = async () => {
-      const title = b.querySelector('[name=title]').value.trim();
-      const due_date = b.querySelector('[name=due_date]').value;
+    document.getElementById('rq-add').onclick = addLine;
+    document.getElementById('rq-save').onclick = async () => {
+      const title = document.querySelector('#rq-meta [name=title]').value.trim();
+      const due_date = document.querySelector('#rq-meta [name=due_date]').value;
       const quotes = [...lines.querySelectorAll('.form-grid')].map(g => {
         const o = {}; g.querySelectorAll('[name]').forEach(el => o[el.name] = el.type === 'number' ? Number(el.value || 0) : el.value.trim()); return o;
       }).filter(q => q.item_desc);
       if (!title || !quotes.length) return UI.toast('Title and at least one quote line required', 'err');
       try {
         const r = await UI.api('/api/rfqs', { method: 'POST', body: { title, due_date, quotes } });
-        UI.closeModal(); UI.toast(`RFQ ${r.rfq_no} created`, 'ok');
+        UI.toast(`RFQ ${r.rfq_no} created`, 'ok');
         App.navigate(`#/procurement?tab=quotes&rfq=${r.id}`);
       } catch (e) { UI.toast(e.message, 'err'); }
     };

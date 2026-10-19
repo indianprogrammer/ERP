@@ -149,6 +149,7 @@ App.registerView('sales', {
         Paid: ${UI.money(doc.paid_amount)} · Balance: <b style="color:${bal > 0 ? 'var(--red)' : 'var(--green)'}">${UI.money(bal)}</b>
       </div>
       <div class="pill-group mt">
+        <button class="btn btn-outline btn-sm" id="d-print">🖨 Print Invoice</button>
         ${doc.doc_type === 'TaxInvoice' ? `
         <button class="btn btn-tonal btn-sm" id="d-eway">⬇ E-Way Bill JSON</button>
         <button class="btn btn-tonal btn-sm" id="d-cn">+ Credit Note</button>
@@ -161,6 +162,7 @@ App.registerView('sales', {
     const dl = (url, name) => fetch(url, { headers: {} }).then(r => r.blob()).then(blob => {
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
     }).catch(e => UI.toast(e.message, 'err'));
+    b.querySelector('#d-print').onclick = () => App.views.settings.openInvoicePrint(doc, items);
     b.querySelector('#d-eway')?.addEventListener('click', () => dl(`/api/salesdocs/${id}/eway-json`, `${doc.doc_no}_eway.json`));
     b.querySelector('#d-cn')?.addEventListener('click', () => { UI.closeModal(); this.noteForm(id, 'CreditNote'); });
     b.querySelector('#d-dn')?.addEventListener('click', () => { UI.closeModal(); this.noteForm(id, 'DebitNote'); });
@@ -201,7 +203,9 @@ App.registerView('sales', {
       if (!d.amount) return UI.toast('Amount required', 'err');
       try {
         const r = await UI.api(`/api/salesdocs/${id}/receive-payment`, { method: 'POST', body: d });
-        UI.closeModal(); UI.toast(`Receipt ${r.receipt_no} recorded`, 'ok'); App.navigate('#/sales?tab=docs');
+        UI.closeModal(); UI.toast(`Receipt ${r.receipt_no} recorded`, 'ok');
+        if (r.receipt) UI.confirm(`Print receipt ${r.receipt_no}?`, () => App.views.settings.openReceiptPrint(r.receipt));
+        else App.navigate('#/sales?tab=docs');
       } catch (e) { UI.toast(e.message, 'err'); }
     };
   },

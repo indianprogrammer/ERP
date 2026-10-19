@@ -23,7 +23,7 @@ const UI = {
     root.innerHTML = `<div class="modal-backdrop" id="mbd"><div class="modal"><h2>${title}</h2><div id="modal-body">${bodyHtml}</div>
       <div class="modal-actions">${actionsHtml || '<button class="btn btn-outline" onclick="UI.closeModal()">Close</button>'}</div></div></div>`;
     root.querySelector('#mbd').addEventListener('mousedown', e => { if (e.target.id === 'mbd') UI.closeModal(); });
-    return root.querySelector('#modal-body');
+    return root.querySelector('.modal');
   },
   closeModal() { document.getElementById('modal-root').innerHTML = ''; },
   confirm(msg, onYes) {

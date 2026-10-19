@@ -22,15 +22,17 @@ App.registerView('crm', {
         <div class="kc-drop" data-stage="${s.id}">
         ${leads.map(l => `
           <div class="kanban-card" draggable="true" data-lead="${l.id}">
-            <h4>${UI.esc(l.title)}</h4>
+            <div class="kc-top">
+              <h4>${UI.esc(l.title)}</h4>
+              <span class="kc-actions">
+                <button class="icon-btn kc-icon lc-edit" data-lead="${l.id}" title="Edit">✎</button>
+                <button class="icon-btn kc-icon danger lc-del" data-lead="${l.id}" title="Delete">✕</button>
+              </span>
+            </div>
             <div class="kc-meta">${UI.esc(l.company || l.contact_name || '')}</div>
             ${l.phone ? `<div class="kc-meta">📞 ${UI.esc(l.phone)}</div>` : ''}
             <div class="kc-val">${UI.money(l.value)}</div>
-            <div class="flex mt" style="gap:6px">
-              <button class="link-btn lc-edit" data-lead="${l.id}">Edit</button>
-              ${s.name === 'Won' ? `<button class="link-btn lc-conv" data-lead="${l.id}">Convert →</button>` : ''}
-              <button class="link-btn danger lc-del" data-lead="${l.id}">✕</button>
-            </div>
+            ${s.name === 'Won' ? `<div class="flex mt" style="gap:6px"><button class="link-btn lc-conv" data-lead="${l.id}">Convert →</button></div>` : ''}
           </div>`).join('')}
         </div>
       </div>`;
@@ -39,20 +41,59 @@ App.registerView('crm', {
   },
   wireDnd() {
     let dragId = null;
+    const ph = document.createElement('div');
+    ph.className = 'kc-placeholder';
+    const clear = () => {
+      ph.remove();
+      document.querySelectorAll('.kanban-col').forEach(c => c.classList.remove('drag-over'));
+    };
     document.querySelectorAll('.kanban-card').forEach(card => {
-      card.addEventListener('dragstart', e => { dragId = card.dataset.lead; card.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
-      card.addEventListener('dragend', () => card.classList.remove('dragging'));
+      card.addEventListener('dragstart', e => {
+        dragId = card.dataset.lead;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', card.dataset.lead); } catch (_) {}
+      });
+      card.addEventListener('dragend', () => {
+        dragId = null;
+        card.classList.remove('dragging');
+        clear();
+      });
+      card.addEventListener('dragover', e => {
+        if (!dragId || card.dataset.lead === dragId) return;
+        e.preventDefault();
+        try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
+        const rect = card.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < rect.height / 2;
+        card.parentElement.insertBefore(ph, before ? card : card.nextSibling);
+      });
     });
-    document.querySelectorAll('.kc-drop').forEach(col => {
-      col.addEventListener('dragover', e => { e.preventDefault(); col.parentElement.classList.add('drag-over'); });
-      col.addEventListener('dragleave', () => col.parentElement.classList.remove('drag-over'));
+    document.querySelectorAll('.kanban-col').forEach(col => {
+      col.addEventListener('dragover', e => {
+        if (!dragId) return;
+        e.preventDefault();
+        col.classList.add('drag-over');
+        const list = col.querySelector('.kc-drop');
+        if (!e.target.closest('.kanban-card') && e.target !== ph) list.appendChild(ph);
+      });
+      col.addEventListener('dragleave', e => {
+        if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over');
+      });
       col.addEventListener('drop', async e => {
         e.preventDefault();
-        col.parentElement.classList.remove('drag-over');
         if (!dragId) return;
+        const list = col.querySelector('.kc-drop');
         const stage = Number(col.dataset.stage);
+        const order = [];
+        [...list.children].forEach(n => {
+          if (n === ph) order.push(dragId);
+          else if (n.classList.contains('kanban-card') && n.dataset.lead !== dragId) order.push(n.dataset.lead);
+        });
+        if (!order.includes(dragId)) order.push(dragId);
+        clear();
+        dragId = null;
         try {
-          await UI.api(`/api/leads/${dragId}/move`, { method: 'POST', body: { stage_id: stage } });
+          await UI.api('/api/leads/reorder', { method: 'POST', body: { stage_id: stage, ids: order } });
           await this.renderBoard();
         } catch (err) { UI.toast(err.message, 'err'); }
       });
@@ -65,7 +106,7 @@ App.registerView('crm', {
     document.querySelectorAll('.lc-conv').forEach(b => b.onclick = () => this.convertLead(Number(b.dataset.lead)));
   },
   async leadForm(id) {
-    let l = { stage_id: 1 };
+    let l = { stage_id: this.data.stages[0] && this.data.stages[0].id };
     if (id) l = this.data.leads.find(x => x.id === id);
     const b = UI.modal(id ? 'Edit Lead' : 'New Lead', `
       <div class="form-grid" id="lf">
