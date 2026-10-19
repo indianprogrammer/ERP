@@ -1,4 +1,5 @@
 const pool = require('../db/pool');
+const { authUser } = require('./middleware');
 
 /* Resolve the current tenant from the request host.
  * Supports subdomain (acme.localhost:3000) and custom domain (erp.acme.com).
@@ -10,9 +11,9 @@ async function resolveTenant(req, res, next) {
 
   // Super-admin / bare domain: no tenant context unless user has a session tenant
   if (parts.length <= 2 || host === 'localhost' || host === '127.0.0.1') {
-    if (req.session?.user?.tenant_id) {
+    if (authUser(req)?.tenant_id) {
       try {
-        const [rows] = await pool.query('SELECT * FROM tenants WHERE id=?', [req.session.user.tenant_id]);
+        const [rows] = await pool.query('SELECT * FROM tenants WHERE id=?', [authUser(req).tenant_id]);
         if (rows[0]) req.tenant = rows[0];
       } catch (e) { /* ignore */ }
     }
@@ -50,7 +51,7 @@ async function resolveTenant(req, res, next) {
 
 async function requireTenant(req, res, next) {
   if (!req.tenant) {
-    const sessionTenantId = req.session?.user?.tenant_id;
+    const sessionTenantId = authUser(req)?.tenant_id;
     if (sessionTenantId) {
       try {
         const [rows] = await pool.query('SELECT * FROM tenants WHERE id=?', [sessionTenantId]);
@@ -66,11 +67,11 @@ async function requireTenant(req, res, next) {
 }
 
 function tenantScope(req) {
-  return req.tenant ? req.tenant.id : (req.session?.user?.tenant_id || null);
+  return req.tenant ? req.tenant.id : (authUser(req)?.tenant_id || null);
 }
 
 function isSuperAdmin(req) {
-  const u = req.session?.user;
+  const u = authUser(req);
   return !!(u && !u.tenant_id);
 }
 

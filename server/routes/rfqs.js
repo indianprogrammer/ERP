@@ -1,5 +1,5 @@
 const express = require('express');
-const { pool, logAudit, requireModule } = require('../lib/middleware');
+const { pool, logAudit, requireModule, authUser } = require('../lib/middleware');
 const router = express.Router();
 
 const tid = (req) => req.tenantId;
@@ -42,7 +42,7 @@ router.post('/', requireModule('procurement', 'can_create'), async (req, res) =>
   if (!title) return res.status(400).json({ error: 'Title required' });
   const rfq_no = await nextNo('rfqs', 'rfq_no', 'RFQ');
   const [r] = await pool.query('INSERT INTO rfqs (tenant_id,rfq_no,title,project_id,status,due_date,created_by) VALUES (?,?,?,?,\'Open\',?,?)',
-    [tid(req), rfq_no, title, project_id || null, due_date || null, req.session.user.id]);
+    [tid(req), rfq_no, title, project_id || null, due_date || null, authUser(req).id]);
   for (const q of quotes) {
     if (!q.vendor_id || !q.item_desc) continue;
     await pool.query('INSERT INTO vendor_quotes (tenant_id,rfq_id,vendor_id,item_desc,qty,unit_price,gst_rate,lead_time_days,payment_terms,notes) VALUES (?,?,?,?,?,?,?,?,?,?)',
@@ -71,7 +71,7 @@ router.post('/:id/convert', requireModule('procurement', 'can_approve'), async (
   const [r] = await pool.query(
     `INSERT INTO purchase_orders (tenant_id,po_no,vendor_id,rfq_id,quote_id,project_id,warehouse_id,order_date,expected_date,status,subtotal,tax_total,grand_total,notes,created_by)
      VALUES (?,?,?,?,?,?,?,CURDATE(),?,'Ordered',?,?,?,?,?)`,
-    [tid(req), po_no, vendorId, req.params.id, quote_ids[0], rfq?.project_id || null, warehouse_id || null, expected_date || null, subtotal, tax_total, subtotal + tax_total, notes || '', req.session.user.id]);
+    [tid(req), po_no, vendorId, req.params.id, quote_ids[0], rfq?.project_id || null, warehouse_id || null, expected_date || null, subtotal, tax_total, subtotal + tax_total, notes || '', authUser(req).id]);
   for (const q of quotes) {
     await pool.query('INSERT INTO po_items (tenant_id,po_id,item_id,description,hsn_sac,qty,unit_price,gst_rate,amount) VALUES (?,?,?,?,?,?,?,?,?)',
       [tid(req), r.insertId, null, q.item_desc, '', q.qty, q.unit_price, q.gst_rate, q.qty * q.unit_price]);

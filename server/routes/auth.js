@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { pool, logAudit, requireAuth } = require('../lib/middleware');
+const { pool, logAudit, requireAuth, loadTenantUser } = require('../lib/middleware');
+const { signAccessToken, signRefreshToken, verifyRefreshToken, ACCESS_TTL } = require('../lib/tokens');
 const { resolveTenant, tenantScope } = require('../lib/tenant');
 
 const router = express.Router();
@@ -111,6 +112,68 @@ router.post('/logout', (req, res) => {
   req.session.destroy(() => {
     res.json({ ok: true });
     if (uname) logAudit({ session: { user: { username: uname } }, ip: req.ip }, 'LOGOUT', 'auth', '');
+  });
+});
+
+// --- API tokens (Bearer JWT for mobile app, MCP server, external clients) ---
+// Tenant users only. Super-admin accounts (tenant_id NULL) cannot obtain tokens.
+
+router.post('/token', async (req, res) => {
+  const { username, password, tenantSlug } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+
+  let tenantId = null;
+  if (tenantSlug) {
+    const [trows] = await pool.query('SELECT id,status FROM tenants WHERE slug=?', [tenantSlug]);
+    if (!trows[0]) return res.status(404).json({ error: 'Organization not found' });
+    if (trows[0].status !== 'active' && trows[0].status !== 'trial') {
+      return res.status(403).json({ error: 'Organization account is not active' });
+    }
+    tenantId = trows[0].id;
+  } else if (req.tenant) {
+    if (req.tenant.status !== 'active' && req.tenant.status !== 'trial') {
+      return res.status(403).json({ error: 'Organization account is not active' });
+    }
+    tenantId = req.tenant.id;
+  } else {
+    return res.status(400).json({ error: 'tenantSlug is required' });
+  }
+
+  const [rows] = await pool.query(
+    `SELECT u.*, r.name AS role FROM users u LEFT JOIN staff_roles r ON r.id=u.role_id
+     WHERE u.username=? AND u.tenant_id=? AND u.is_active=1`,
+    [username, tenantId]
+  );
+  const u = rows[0];
+  if (!u || !bcrypt.compareSync(password, u.password_hash)) {
+    await logAudit(req, 'LOGIN_FAIL', 'auth', `token user=${username} tenant=${tenantId}`);
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  if (u.must_change_password) {
+    return res.status(403).json({ error: 'PASSWORD_CHANGE_REQUIRED', mustChange: true });
+  }
+  const user = await loadTenantUser(u.id);
+  const token = signAccessToken(user);
+  const refreshToken = signRefreshToken(user);
+  await pool.query('UPDATE users SET last_login=NOW() WHERE id=?', [u.id]);
+  await logAudit(req, 'LOGIN', 'auth', `token user=${username} tenant=${tenantId}`);
+  const [trows] = await pool.query('SELECT id,name,slug,plan,status FROM tenants WHERE id=?', [tenantId]);
+  res.json({ token, refreshToken, tokenType: 'Bearer', expiresIn: ACCESS_TTL, user, tenant: trows[0] });
+});
+
+router.post('/token/refresh', async (req, res) => {
+  const { refreshToken } = req.body || {};
+  if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
+  let payload;
+  try { payload = verifyRefreshToken(refreshToken); }
+  catch { return res.status(401).json({ error: 'Invalid or expired refresh token' }); }
+  const user = await loadTenantUser(payload.sub);
+  if (!user || user.mustChangePassword) return res.status(401).json({ error: 'Invalid refresh token' });
+  res.json({
+    token: signAccessToken(user),
+    refreshToken: signRefreshToken(user),
+    tokenType: 'Bearer',
+    expiresIn: ACCESS_TTL
   });
 });
 

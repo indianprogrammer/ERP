@@ -1,5 +1,5 @@
 const express = require('express');
-const { pool, logAudit, requireModule } = require('../lib/middleware');
+const { pool, logAudit, requireModule, authUser } = require('../lib/middleware');
 const { deductStockForDoc } = require('./stock');
 const { getSettings } = require('./settings');
 const router = express.Router();
@@ -136,14 +136,14 @@ router.post('/', requireModule('sales', 'can_create'), async (req, res) => {
       doc_type === 'Quotation' ? 'Draft' : (doc_type === 'TaxInvoice' ? 'Issued' : (doc_type === 'DeliveryChallan' ? 'Dispatched' : 'Issued')),
       doc_type === 'TaxInvoice' ? 'Pending GSTR-1' : 'N/A',
       sign * g.taxable, sign * g.cgst, sign * g.sgst, sign * g.igst, sign * g.grand,
-      due_date || null, notes || '', req.session.user.id]);
+      due_date || null, notes || '', authUser(req).id]);
   for (const ln of g.lines) {
     await pool.query('INSERT INTO sales_doc_items (tenant_id,doc_id,item_id,description,hsn_sac,qty,unit_price,gst_rate,amount) VALUES (?,?,?,?,?,?,?,?,?)',
       [tid(req), r.insertId, ln.item_id || null, ln.description || '', ln.hsn_sac || '', ln.qty || 1, ln.unit_price || 0, ln.gst_rate ?? 18, sign * ln.amount]);
   }
   if (project_id) await pool.query('INSERT IGNORE INTO project_links (tenant_id,project_id,ref_type,ref_id,amount) VALUES (?,?,\'SALE\',?,?)', [tid(req), project_id, r.insertId, sign * g.grand]);
   if (doc_type === 'TaxInvoice' || doc_type === 'Invoice' || doc_type === 'DeliveryChallan') {
-    await deductStockForDoc(r.insertId, req.session.user.id, tid(req));
+    await deductStockForDoc(r.insertId, authUser(req).id, tid(req));
     if (carrier || eway_awb) {
       await pool.query('INSERT INTO shipments (tenant_id,sales_doc_id,carrier,awb_no,status,shipped_date) VALUES (?,?,?,?,\'In-Transit\',CURDATE())',
         [tid(req), r.insertId, carrier || '', eway_awb || '']);
@@ -205,7 +205,7 @@ router.post('/:id/credit-debit', requireModule('sales', 'can_create'), async (re
   const [r] = await pool.query(
     `INSERT INTO sales_documents (tenant_id,doc_no,doc_type,customer_id,project_id,doc_date,place_of_supply,status,gst_status,taxable_value,cgst,sgst,igst,grand_total,notes,created_by)
      VALUES (?,?,?, ?, ?, CURDATE(), ?, 'Issued','N/A', ?, ?, ?, ?, ?, ?, ?)`,
-    [tid(req), doc_no, note_type, doc.customer_id, doc.project_id, pos, sign * Math.abs(g.taxable), sign * Math.abs(g.cgst), sign * Math.abs(g.sgst), sign * Math.abs(g.igst), sign * Math.abs(g.grand), `${reason || ''} against ${doc.doc_no}`, req.session.user.id]);
+    [tid(req), doc_no, note_type, doc.customer_id, doc.project_id, pos, sign * Math.abs(g.taxable), sign * Math.abs(g.cgst), sign * Math.abs(g.sgst), sign * Math.abs(g.igst), sign * Math.abs(g.grand), `${reason || ''} against ${doc.doc_no}`, authUser(req).id]);
   for (const ln of g.lines) {
     await pool.query('INSERT INTO sales_doc_items (tenant_id,doc_id,item_id,description,hsn_sac,qty,unit_price,gst_rate,amount) VALUES (?,?,?,?,?,?,?,?,?)',
       [tid(req), r.insertId, ln.item_id || null, ln.description || '', ln.hsn_sac || '', ln.qty, ln.unit_price || 0, ln.gst_rate ?? 18, sign * Math.abs(ln.amount)]);

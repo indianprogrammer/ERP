@@ -1,0 +1,192 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "X3M ERP API",
+    "version": "1.0.0",
+    "description": "Multi-tenant GST ERP for Indian businesses. All endpoints are tenant-scoped: authenticate as a company user and every query is limited to that company. Obtain a token via `POST /api/auth/token` and send it as `Authorization: Bearer <token>` (session cookies from the web UI also work). Super-admin accounts cannot obtain API tokens."
+  },
+  "servers": [{ "url": "/", "description": "This server" }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT", "description": "Access token from /api/auth/token (valid 7 days)" }
+    },
+    "schemas": {
+      "Error": { "type": "object", "properties": { "error": { "type": "string" } }, "required": ["error"] }
+    },
+    "responses": {
+      "Error": { "description": "Error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/api/auth/token": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Exchange username/password for API tokens",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["username", "password"], "properties": {
+            "username": { "type": "string" }, "password": { "type": "string" },
+            "tenantSlug": { "type": "string", "description": "Company slug (subdomain). Optional if the request is sent to the company subdomain." }
+          } } } }
+        },
+        "responses": {
+          "200": { "description": "Tokens issued", "content": { "application/json": { "schema": { "type": "object", "properties": {
+            "token": { "type": "string" }, "refreshToken": { "type": "string" },
+            "tokenType": { "type": "string", "example": "Bearer" },
+            "expiresIn": { "type": "string", "example": "7d" },
+            "user": { "type": "object" }, "tenant": { "type": "object" }
+          } } } } },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/auth/token/refresh": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Rotate tokens using a refresh token",
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["refreshToken"], "properties": { "refreshToken": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "New token pair" }, "401": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/auth/me": {
+      "get": { "tags": ["Auth"], "summary": "Current user", "responses": { "200": { "description": "User + tenant" } } }
+    },
+    "/api/auth/change-password": {
+      "post": { "tags": ["Auth"], "summary": "Change own password", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["currentPassword", "newPassword"], "properties": { "currentPassword": { "type": "string" }, "newPassword": { "type": "string", "minLength": 6 } } } } } }, "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/company": {
+      "get": { "tags": ["Company"], "summary": "Get company profile + invoice settings", "responses": { "200": { "description": "{ company: { id, name, slug, domain, plan, status, gstin, address, settings: {...} } }" } } },
+      "put": {
+        "tags": ["Company"],
+        "summary": "Update company profile (admin)",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": {
+          "name": { "type": "string" }, "gstin": { "type": "string", "maxLength": 15 }, "address": { "type": "string" },
+          "slug": { "type": "string" }, "domain": { "type": "string" },
+          "company_pan": { "type": "string" }, "company_phone": { "type": "string" }, "company_email": { "type": "string" },
+          "company_state_code": { "type": "string", "example": "27" },
+          "invoice_theme": { "type": "string", "example": "classic" }, "receipt_theme": { "type": "string" },
+          "terms_conditions": { "type": "string" }, "bank_name": { "type": "string" }, "upi_id": { "type": "string" }
+        } } } } },
+        "responses": { "200": { "description": "{ ok: true, company: {...} }" }, "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/company/team": {
+      "get": { "tags": ["Company"], "summary": "List company users", "responses": { "200": { "description": "{ team: [...] }" } } }
+    },
+    "/api/dashboard": {
+      "get": { "tags": ["Dashboard"], "summary": "Dashboard KPIs and recent activity", "responses": { "200": { "description": "{ tenant, kpis, recentDocs, recentReceipts, lowStockItems, openPos }" } } }
+    },
+    "/api/customers": {
+      "get": { "tags": ["Customers"], "summary": "List customers", "responses": { "200": { "description": "{ customers: [...] }" } } },
+      "post": {
+        "tags": ["Customers"], "summary": "Create customer (sales create permission)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": {
+          "name": { "type": "string" }, "gstin": { "type": "string" }, "pan": { "type": "string" },
+          "contact_person": { "type": "string" }, "phone": { "type": "string" }, "email": { "type": "string" },
+          "address": { "type": "string" }, "state_code": { "type": "string" }, "place_of_supply": { "type": "string" }, "payment_terms": { "type": "string" }
+        } } } } },
+        "responses": { "200": { "description": "{ id }" }, "403": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/customers/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "get": { "tags": ["Customers"], "summary": "Get customer", "responses": { "200": { "description": "{ customer }" }, "404": { "$ref": "#/components/responses/Error" } } },
+      "put": { "tags": ["Customers"], "summary": "Update customer (sales update permission)", "responses": { "200": { "description": "{ ok: true }" } } }
+    },
+    "/api/items": {
+      "get": { "tags": ["Items"], "summary": "List inventory items (with stock)", "responses": { "200": { "description": "{ items: [...] }" } } },
+      "post": {
+        "tags": ["Items"], "summary": "Create item (inventory create permission)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["sku", "name"], "properties": {
+          "sku": { "type": "string" }, "name": { "type": "string" }, "uom": { "type": "string" },
+          "hsn_sac": { "type": "string" }, "category": { "type": "string" },
+          "sale_price": { "type": "number" }, "purchase_price": { "type": "number" },
+          "gst_rate": { "type": "number", "maximum": 28 }, "reorder_level": { "type": "number" }, "barcode": { "type": "string" }
+        } } } } },
+        "responses": { "200": { "description": "{ id }" } }
+      }
+    },
+    "/api/items/low-stock": {
+      "get": { "tags": ["Items"], "summary": "Items at/below reorder level", "responses": { "200": { "description": "{ items: [...] }" } } }
+    },
+    "/api/vendors": {
+      "get": { "tags": ["Vendors"], "summary": "List vendors (procurement read)", "responses": { "200": { "description": "{ vendors: [...] }" } } },
+      "post": { "tags": ["Vendors"], "summary": "Create vendor (procurement create)", "responses": { "200": { "description": "{ id }" } } }
+    },
+    "/api/salesdocs": {
+      "get": {
+        "tags": ["Sales"], "summary": "List sales documents",
+        "parameters": [{ "name": "type", "in": "query", "schema": { "type": "string", "enum": ["Quotation", "Proforma", "TaxInvoice", "Invoice", "DeliveryChallan", "CreditNote", "DebitNote"] } }],
+        "responses": { "200": { "description": "{ docs: [...] }" } }
+      },
+      "post": {
+        "tags": ["Sales"], "summary": "Create sales document (auto GST + doc no)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["doc_type", "customer_id", "items"], "properties": {
+          "doc_type": { "type": "string", "enum": ["Quotation", "Proforma", "TaxInvoice", "Invoice", "DeliveryChallan"] },
+          "customer_id": { "type": "integer" }, "doc_date": { "type": "string", "format": "date" },
+          "due_date": { "type": "string", "format": "date" }, "place_of_supply": { "type": "string" }, "notes": { "type": "string" },
+          "items": { "type": "array", "items": { "type": "object", "required": ["item_id", "qty", "unit_price"], "properties": {
+            "item_id": { "type": "integer" }, "qty": { "type": "number" }, "unit_price": { "type": "number" }, "gst_rate": { "type": "number" }
+          } } }
+        } } } } },
+        "responses": { "200": { "description": "{ id, doc_no }" } }
+      }
+    },
+    "/api/leads": {
+      "get": { "tags": ["CRM"], "summary": "Pipeline stages + leads (crm read)", "responses": { "200": { "description": "{ stages, leads }" } } },
+      "post": { "tags": ["CRM"], "summary": "Create lead (crm create)", "responses": { "200": { "description": "{ id }" } } }
+    },
+    "/api/expenses": {
+      "get": {
+        "tags": ["Expenses"], "summary": "List expenses — project-based or individual (projects read)",
+        "parameters": [
+          { "name": "type", "in": "query", "schema": { "type": "string", "enum": ["project", "individual"] }, "description": "project = mapped to a project, individual = overhead" },
+          { "name": "project_id", "in": "query", "schema": { "type": "integer" } },
+          { "name": "month", "in": "query", "schema": { "type": "string", "example": "2026-10" }, "description": "YYYY-MM" },
+          { "name": "q", "in": "query", "schema": { "type": "string" }, "description": "Search title/notes/category" }
+        ],
+        "responses": { "200": { "description": "{ expenses, total, project_total, individual_total }" } }
+      },
+      "post": {
+        "tags": ["Expenses"], "summary": "Record expense — include project_id for project-based, omit for individual (projects create)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["title", "amount"], "properties": {
+          "title": { "type": "string" }, "amount": { "type": "number", "exclusiveMinimum": 0 },
+          "project_id": { "type": "integer", "description": "Omit for an individual (non-project) expense" },
+          "vendor_id": { "type": "integer" },
+          "category": { "type": "string", "example": "Travel" },
+          "expense_date": { "type": "string", "format": "date" }, "notes": { "type": "string" }
+        } } } } },
+        "responses": { "200": { "description": "{ id }" }, "400": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/expenses/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "delete": { "tags": ["Expenses"], "summary": "Delete expense (projects delete)", "responses": { "200": { "description": "{ ok: true }" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/api/receipts": {
+      "get": { "tags": ["Receipts"], "summary": "List receipts", "responses": { "200": { "description": "{ receipts: [...] }" } } },
+      "post": { "tags": ["Receipts"], "summary": "Record receipt against invoice", "responses": { "200": { "description": "{ id }" } } }
+    },
+    "/api/mcp": {
+      "post": {
+        "tags": ["MCP"], "summary": "Streamable HTTP MCP endpoint (JSON-RPC)",
+        "description": "Mount this URL in any MCP client that supports streamable HTTP. Send the same Bearer token in the Authorization header. Stateless: no session id required.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "description": "MCP JSON-RPC message (initialize, tools/list, tools/call)" } } } },
+        "responses": { "200": { "description": "JSON-RPC response" }, "405": { "description": "GET/DELETE not supported" } }
+      }
+    }
+  },
+  "tags": [
+    { "name": "Auth", "description": "Token exchange for mobile, MCP and external clients" },
+    { "name": "Company", "description": "Own company profile and settings" },
+    { "name": "Dashboard", "description": "KPIs" },
+    { "name": "Customers" }, { "name": "Items" }, { "name": "Vendors" },
+    { "name": "Sales" }, { "name": "CRM" }, { "name": "Expenses" }, { "name": "Receipts" },
+    { "name": "MCP", "description": "Model Context Protocol endpoint for AI agents" }
+  ]
+}

@@ -20,10 +20,14 @@ app.use(resolveTenant);
 
 app.use('/api/auth', require('./server/routes/auth'));
 
+// Public API + MCP documentation
+app.use('/api/docs', require('./server/routes/docs'));
+app.use('/docs', require('./server/routes/docs'));
+
 // Super-admin routes (no tenant required)
 app.use('/api/admin', requireAuth, require('./server/routes/admin'));
 
-// ---- protected API (tenant-scoped) ----
+// ---- protected API (tenant-scoped; session cookie OR Bearer JWT) ----
 app.use('/api', requireAuth, requireTenant);
 
 // Attach tenant scope to req for audit logging
@@ -33,8 +37,8 @@ app.use('/api', (req, res, next) => {
 });
 
 // module routers (all tenant-scoped via requireTenant above)
-for (const mod of ['dashboard', 'vendors', 'rfqs', 'pos', 'customers', 'salesdocs', 'items', 'warehouses', 'stock', 'leads', 'projects', 'gst', 'staff', 'expenses', 'receipts', 'warranties', 'search', 'notifications', 'settings']) {
-  try { app.use(`/api/${mod}`, require(`./server/routes/${mod}`)); } catch (e) { /* loaded in later parts */ }
+for (const mod of ['dashboard', 'vendors', 'rfqs', 'pos', 'customers', 'salesdocs', 'items', 'warehouses', 'stock', 'leads', 'projects', 'gst', 'staff', 'expenses', 'receipts', 'warranties', 'search', 'notifications', 'settings', 'company', 'mcp']) {
+  try { app.use(`/api/${mod}`, require(`./server/routes/${mod}`)); } catch (e) { console.error(`route load failed: ${mod}`, e.message); }
 }
 
 app.use(express.static(path.join(__dirname, 'public')));

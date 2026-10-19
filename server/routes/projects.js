@@ -1,5 +1,5 @@
 const express = require('express');
-const { pool, logAudit, requireModule } = require('../lib/middleware');
+const { pool, logAudit, requireModule, authUser } = require('../lib/middleware');
 const router = express.Router();
 
 const tid = (req) => req.tenantId;
@@ -53,7 +53,7 @@ router.post('/:id/expenses', requireModule('projects', 'can_create'), async (req
   const { title, category, amount, expense_date, vendor_id } = req.body;
   if (!title || !amount) return res.status(400).json({ error: 'Title and amount required' });
   const [r] = await pool.query('INSERT INTO expenses (tenant_id,project_id,vendor_id,title,category,amount,expense_date,created_by) VALUES (?,?,?,?,?,?,?,?,?)',
-    [tid(req), req.params.id, vendor_id || null, title, category || 'General', amount, expense_date || null, req.session.user.id]);
+    [tid(req), req.params.id, vendor_id || null, title, category || 'General', amount, expense_date || null, authUser(req).id]);
   await logAudit(req, 'CREATE', 'expense', `${title} ₹${amount}`);
   res.json({ id: r.insertId });
 });

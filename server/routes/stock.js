@@ -1,5 +1,5 @@
 const express = require('express');
-const { pool, logAudit, requireModule } = require('../lib/middleware');
+const { pool, logAudit, requireModule, authUser } = require('../lib/middleware');
 const router = express.Router();
 
 const tid = (req) => req.tenantId;
@@ -24,7 +24,7 @@ router.post('/adjust', requireModule('inventory', 'can_update'), async (req, res
     `INSERT INTO stock_levels (tenant_id,item_id,warehouse_id,qty) VALUES (?,?,?,?)
      ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)`, [tid(req), item_id, warehouse_id, delta]);
   await pool.query('INSERT INTO stock_movements (tenant_id,item_id,warehouse_id,movement_type,qty,ref_type,notes,created_by) VALUES (?,?,?,?,\'ADJ\',?,?)',
-    [tid(req), item_id, warehouse_id, movement_type, Math.abs(qty), notes || '', req.session.user.id]);
+    [tid(req), item_id, warehouse_id, movement_type, Math.abs(qty), notes || '', authUser(req).id]);
   await logAudit(req, 'STOCK_ADJUST', 'stock', `item=${item_id} ${movement_type} ${qty}`);
   res.json({ ok: true });
 });

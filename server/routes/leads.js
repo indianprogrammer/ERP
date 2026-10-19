@@ -1,5 +1,5 @@
 const express = require('express');
-const { pool, logAudit, requireModule } = require('../lib/middleware');
+const { pool, logAudit, requireModule, authUser } = require('../lib/middleware');
 const { ensureStages, firstStageId, wonStageId } = require('../lib/leadStages');
 const router = express.Router();
 
@@ -33,7 +33,7 @@ router.post('/', requireModule('crm', 'can_create'), async (req, res) => {
   const pos = await nextPosition(tid(req), sid);
   const [r] = await pool.query(
     'INSERT INTO leads (tenant_id,title,company,contact_name,phone,email,value,stage_id,position,notes,owner_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-    [tid(req), title, company || '', contact_name || '', phone || '', email || '', value || 0, sid, pos, notes || '', req.session.user.id]);
+    [tid(req), title, company || '', contact_name || '', phone || '', email || '', value || 0, sid, pos, notes || '', authUser(req).id]);
   await logAudit(req, 'CREATE', 'lead', title);
   res.json({ id: r.insertId });
 });
@@ -91,7 +91,7 @@ router.post('/:id/convert', requireModule('crm', 'can_approve'), async (req, res
     const [r] = await pool.query(
       `INSERT INTO sales_documents (tenant_id,doc_no,doc_type,customer_id,doc_date,place_of_supply,status,gst_status,taxable_value,cgst,sgst,igst,grand_total,notes,created_by)
        VALUES (?, ?, 'TaxInvoice', CURDATE(), ?, 'Issued','Pending GSTR-1', ?, ?, ?, ?, ?, ?, ?)`,
-      [tid(req), doc_no, cust.id, place_of_supply || 'Maharashtra', taxable, inter ? 0 : tax / 2, inter ? 0 : tax / 2, inter ? tax : 0, taxable + tax, `Converted from lead: ${lead.title}`, req.session.user.id]);
+      [tid(req), doc_no, cust.id, place_of_supply || 'Maharashtra', taxable, inter ? 0 : tax / 2, inter ? 0 : tax / 2, inter ? tax : 0, taxable + tax, `Converted from lead: ${lead.title}`, authUser(req).id]);
     await pool.query('INSERT INTO sales_doc_items (tenant_id,doc_id,description,hsn_sac,qty,unit_price,gst_rate,amount) VALUES (?,?,?,?,?,?,?,?)',
       [tid(req), r.insertId, lead.title, '998315', 1, taxable, gstRate, taxable]);
     await pool.query('UPDATE leads SET converted_doc_id=?, stage_id=? WHERE id=? AND tenant_id=?', [r.insertId, wonId, lead.id, tid(req)]);

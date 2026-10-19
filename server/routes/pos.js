@@ -1,5 +1,5 @@
 const express = require('express');
-const { pool, logAudit, requireModule } = require('../lib/middleware');
+const { pool, logAudit, requireModule, authUser } = require('../lib/middleware');
 const router = express.Router();
 
 const tid = (req) => req.tenantId;
@@ -37,7 +37,7 @@ router.post('/', requireModule('procurement', 'can_create'), async (req, res) =>
   const [r] = await pool.query(
     `INSERT INTO purchase_orders (tenant_id,po_no,vendor_id,project_id,warehouse_id,order_date,expected_date,status,subtotal,tax_total,grand_total,notes,created_by)
      VALUES (?,?,?,?,?,CURDATE(),?,'Ordered',?,?,?,?,?)`,
-    [tid(req), po_no, vendor_id, project_id || null, warehouse_id || null, expected_date || null, subtotal, tax_total, subtotal + tax_total, notes || '', req.session.user.id]);
+    [tid(req), po_no, vendor_id, project_id || null, warehouse_id || null, expected_date || null, subtotal, tax_total, subtotal + tax_total, notes || '', authUser(req).id]);
   for (const it of items) {
     await pool.query('INSERT INTO po_items (tenant_id,po_id,item_id,description,hsn_sac,qty,unit_price,gst_rate,amount) VALUES (?,?,?,?,?,?,?,?,?)',
       [tid(req), r.insertId, it.item_id || null, it.description || '', it.hsn_sac || '', it.qty || 1, it.unit_price || 0, it.gst_rate ?? 18, (it.qty || 0) * (it.unit_price || 0)]);
@@ -59,7 +59,7 @@ router.post('/:id/receive', requireModule('procurement', 'can_update'), async (r
       `INSERT INTO stock_levels (tenant_id,item_id,warehouse_id,qty) VALUES (?,?,?,?)
        ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty)`, [tid(req), ln.item_id, wh, ln.qty]);
     await pool.query('INSERT INTO stock_movements (tenant_id,item_id,warehouse_id,movement_type,qty,ref_type,ref_no,created_by) VALUES (?,?,?,\'IN\',?,?,?,?)',
-      [tid(req), ln.item_id, wh, ln.qty, 'PO', po.po_no, req.session.user.id]);
+      [tid(req), ln.item_id, wh, ln.qty, 'PO', po.po_no, authUser(req).id]);
   }
   await pool.query('UPDATE purchase_orders SET status=\'Delivered\' WHERE id=? AND tenant_id=?', [req.params.id, tid(req)]);
   await pool.query(`UPDATE shipments SET status='Delivered', delivered_date=CURDATE() WHERE po_id=? AND tenant_id=?`, [req.params.id, tid(req)]);
@@ -81,7 +81,7 @@ router.post('/:id/pay', requireModule('procurement', 'can_approve'), async (req,
   const [[po]] = await pool.query('SELECT p.*, v.name vendor_name FROM purchase_orders p JOIN vendors v ON v.id=p.vendor_id AND v.tenant_id=? WHERE p.id=? AND p.tenant_id=?', [tid(req), req.params.id, tid(req)]);
   if (!po) return res.status(404).json({ error: 'PO not found' });
   await pool.query('INSERT INTO expenses (tenant_id,vendor_id,title,category,amount,expense_date,notes,created_by) VALUES (?,?,?,?,?,CURDATE(),?,?)',
-    [tid(req), po.vendor_id, `Payment to ${po.vendor_name} for ${po.po_no}`, 'Vendor Payment', amount || 0, `Mode:${mode || 'Bank'} Ref:${ref_no || '-'}`, req.session.user.id]);
+    [tid(req), po.vendor_id, `Payment to ${po.vendor_name} for ${po.po_no}`, 'Vendor Payment', amount || 0, `Mode:${mode || 'Bank'} Ref:${ref_no || '-'}`, authUser(req).id]);
   await logAudit(req, 'VENDOR_PAYMENT', 'purchase_order', `${po.po_no} ₹${amount}`);
   res.json({ ok: true });
 });

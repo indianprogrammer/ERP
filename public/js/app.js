@@ -53,7 +53,7 @@ Object.assign(App, {
     return !!(p && p[perm]);
   },
   applyPermissions() {
-    const map = { procurement: 'procurement', sales: 'sales', projects: 'projects', inventory: 'inventory', crm: 'crm', gst: 'gst', staff: 'admin', admin: null, settings: 'admin' };
+    const map = { procurement: 'procurement', sales: 'sales', projects: 'projects', expenses: 'projects', inventory: 'inventory', crm: 'crm', gst: 'gst', staff: 'admin', admin: null, settings: 'admin' };
     const adminLink = document.querySelector('.sidebar a[data-nav="admin"]');
     if (this.user && this.user.isSuperAdmin) {
       document.querySelectorAll('.sidebar a[data-nav]').forEach(a => {

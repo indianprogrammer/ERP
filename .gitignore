@@ -21,3 +21,15 @@ Thumbs.db
 
 # Screenshots (generated)
 screenshots/*.tmp.png
+
+# Flutter (mobile/)
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/android/
+mobile/ios/
+mobile/linux/
+mobile/macos/
+mobile/windows/
+mobile/web/

@@ -146,9 +146,11 @@ Built as a lightweight REST API (Express) + a dependency-free vanilla-JS single-
 | Layer | Technology |
 |---|---|
 | **Frontend** | Vanilla JS SPA (hash router), HTML5, hand-written CSS (Material 3 / X3M Admin theme) — **no build step** |
-| **Backend** | Node.js, Express 4 |
+| **Backend** | Node.js, Express 5 |
 | **Database** | MariaDB / MySQL 8 (via `mysql2` connection pool) |
-| **Auth** | `express-session` (server-side sessions) + `bcryptjs` |
+| **Auth** | `express-session` (web) + `jsonwebtoken` Bearer tokens (mobile / MCP / external clients) + `bcryptjs` |
+| **AI / MCP** | `@modelcontextprotocol/sdk` — stdio + streamable-HTTP transports |
+| **Mobile** | Flutter (`mobile/`) — Android & iOS |
 | **Config** | `dotenv` |
 | **Screenshots** | `puppeteer-core` + system Chrome (dev tool) |
 
@@ -169,15 +171,31 @@ ERP/
 │   │   ├── schema.sql           # Full relational schema (all modules)
 │   │   ├── seed.sql             # Demo data (vendors, customers, items, leads, quotes)
 │   │   └── pool.js              # mysql2 connection pool
+│   ├── docs/
+│   │   ├── index.html           # Web-hosted API + MCP documentation (/docs)
+│   │   └── openapi.json         # OpenAPI 3.1 spec (/api/docs/openapi.json)
 │   ├── lib/
-│   │   └── middleware.js        # Auth guards, RBAC, audit logging
+│   │   ├── middleware.js        # Auth guards (session + Bearer JWT), RBAC, audit logging
+│   │   ├── tokens.js            # JWT access/refresh token helpers
+│   │   └── tenant.js            # Host/subdomain → tenant resolution
 │   └── routes/
-│       ├── auth.js              # Login / logout / change-password
+│       ├── auth.js              # Login / logout / change-password / token exchange
+│       ├── company.js           # Company profile API (mobile & external clients)
+│       ├── mcp.js               # Streamable-HTTP MCP endpoint (/api/mcp)
+│       ├── docs.js              # API documentation routes
 │       ├── vendors.js  rfqs.js  pos.js  warranties.js
 │       ├── customers.js  salesdocs.js  receipts.js
 │       ├── items.js  warehouses.js  stock.js
 │       ├── leads.js  projects.js  expenses.js
 │       ├── gst.js  staff.js  search.js  notifications.js
+├── mcp/
+│   ├── server.js                # MCP tool definitions (company, sales, CRM, inventory…)
+│   └── stdio.js                 # stdio transport entry (npm run mcp)
+├── mobile/                      # Flutter app (login, dashboard, company, customers, items)
+│   ├── pubspec.yaml
+│   └── lib/
+│       ├── main.dart  api_client.dart
+│       └── screens/             # login, home, dashboard, company, customers, items
 ├── public/
 │   ├── index.html               # App shell (login, top bar, drawer)
 │   ├── css/app.css              # Responsive Material 3 theme
@@ -206,7 +224,7 @@ npm install
 ### 2. Configure environment
 ```bash
 cp .env.example .env
-# edit .env  (DB credentials, SESSION_SECRET, PORT)
+# edit .env  (DB credentials, SESSION_SECRET, JWT_SECRET, PORT)
 ```
 
 ### 3. Create the database & schema
@@ -371,13 +389,50 @@ docker compose up -d --build      # → http://localhost:3000
 
 ---
 
-## 🔌 API Reference (selected)
+## 🔌 API Reference
+
+Interactive documentation is served by the app itself:
+
+- **HTML docs:** `GET /docs` (or `/api/docs`) — browsable endpoint reference + MCP guide
+- **OpenAPI 3.1 spec:** `GET /api/docs/openapi.json`
+
+### Authentication (tokens for mobile / MCP / external clients)
+
+The web UI uses session cookies. External clients (mobile app, MCP server, scripts) use **Bearer JWTs**:
+
+```bash
+# 1. Exchange credentials for tokens (tenant users only — super-admin accounts cannot get tokens)
+curl -X POST http://localhost:3000/api/auth/token \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"changeme123","tenantSlug":"acme"}'
+# → { "token": "...", "refreshToken": "...", "expiresIn": "7d", "user": {...}, "tenant": {...} }
+
+# 2. Call any tenant API with the token
+curl http://localhost:3000/api/company -H 'Authorization: Bearer <token>'
+
+# 3. Rotate tokens before expiry
+curl -X POST http://localhost:3000/api/auth/token/refresh \
+  -H 'Content-Type: application/json' -d '{"refreshToken":"<refreshToken>"}'
+```
+
+Every token is bound to **one company**; all queries are tenant-scoped and RBAC-enforced. Configure `JWT_SECRET`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` in `.env`.
+
+### Company API
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/auth/login` | Authenticate (session cookie) |
-| `POST` | `/api/auth/change-password` | Change own password |
+| `GET` | `/api/company` | Company profile + invoice/billing settings |
+| `PUT` | `/api/company` | Update own profile (name, GSTIN, address, slug, bank/UPI, themes…; admin perm) |
+| `GET` | `/api/company/team` | Company user directory |
+
+### All endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/auth/login` · `/api/auth/token` | Session login / JWT token exchange |
+| `POST` | `/api/auth/token/refresh` · `/api/auth/change-password` | Token rotation / password change |
 | `GET` | `/api/dashboard` | Dashboard metrics |
+| `GET` | `/api/company` · `PUT` · `/api/company/team` | Company profile & team |
 | `GET` | `/api/search?q=` | Global search (invoices, POs, GSTINs, SKUs, projects) |
 | `GET/POST` | `/api/vendors` | Vendor directory |
 | `GET` | `/api/rfqs/:id/matrix` | Multi-vendor quote comparison |
@@ -389,11 +444,77 @@ docker compose up -d --build      # → http://localhost:3000
 | `GET/POST` | `/api/items` · `/api/stock` · `/api/warehouses` | Inventory |
 | `GET/POST` | `/api/leads` · `/api/leads/:id/move` · `/api/leads/:id/convert` | CRM Kanban |
 | `GET/POST` | `/api/projects` · `/api/projects/:id/link` | Project cost mapping |
+| `GET/POST/DELETE` | `/api/expenses` · `/api/expenses/:id` | Expenses — **project-based** (`project_id`) or **individual** (omit `project_id`); filter `?type=project|individual&month=YYYY-MM&q=` |
 | `POST` | `/api/gst/gstr2b/import` · `/api/gst/gstr2b/reconcile` | GSTR-2B reconciliation |
 | `GET` | `/api/gst/:type/export` · `POST /api/gst/:type/file` | GSTR-1/3B export & filing |
 | `GET/POST` | `/api/staff/users` · `/api/staff/roles` · `/api/staff/audit` | RBAC & audit |
+| `POST` | `/api/mcp` | MCP endpoint (JSON-RPC, see below) |
 
-> All `/api/*` routes (except `auth` and `status`) require an authenticated session and are enforced by module-level RBAC middleware.
+> All `/api/*` routes (except `auth` and `docs`) require a session cookie **or** `Authorization: Bearer <token>` and are enforced by module-level RBAC middleware.
+
+---
+
+## 🤖 MCP Server (AI agents)
+
+Expose the ERP to AI agents (Claude Desktop, Claude Code, or any MCP client) with two transports and the same tools. Tools call the REST API with your token, so company RBAC always applies. **No super-admin access — tenant company scope only.**
+
+**Tools:** `company_get` · `company_update` · `dashboard_get` · `customers_list` · `customer_create` · `items_list` · `item_create` · `stock_low` · `vendors_list` · `vendor_create` · `sales_documents_list` · `leads_list` · `lead_create` · `expenses_list` · `expense_create`
+
+### Option A — Streamable HTTP (remote / hosted agents)
+
+The Express server exposes a stateless MCP endpoint at **`POST /api/mcp`**:
+
+```json
+{
+  "mcpServers": {
+    "x3m-erp": {
+      "type": "streamable-http",
+      "url": "http://localhost:3000/api/mcp",
+      "headers": { "Authorization": "Bearer <token from /api/auth/token>" }
+    }
+  }
+}
+```
+
+### Option B — stdio (local agent subprocess)
+
+```bash
+npm run mcp   # runs mcp/stdio.js
+```
+
+```json
+{
+  "mcpServers": {
+    "x3m-erp": {
+      "command": "node",
+      "args": ["/path/to/ERP/mcp/stdio.js"],
+      "env": {
+        "ERP_API_URL": "http://localhost:3000",
+        "ERP_TENANT": "acme",
+        "ERP_USERNAME": "admin",
+        "ERP_PASSWORD": "changeme123"
+      }
+    }
+  }
+}
+```
+
+(`ERP_TOKEN` can be set instead of username/password to skip the credential exchange.)
+
+---
+
+## 📱 Mobile App (Flutter)
+
+A Flutter app lives in [`mobile/`](mobile/): login via `/api/auth/token`, then dashboard KPIs, company profile editing, customers, inventory items, and expenses (project-based or individual).
+
+```bash
+cd mobile
+flutter create --platforms=android,ios .   # generate platform folders (first time only)
+flutter pub get
+flutter run                                 # Android emulator hits http://10.0.2.2:3000
+```
+
+The server URL is configurable on the login screen (Server settings). Use your machine's LAN IP for a physical device.
 
 ---
 
