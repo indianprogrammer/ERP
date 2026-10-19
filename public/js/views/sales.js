@@ -1,7 +1,7 @@
 App.registerView('sales', {
   async render(params) {
     const tab = params.tab || 'docs';
-    const tabs = [['docs', '🧾 Document Billing Engine'], ['customers', '👥 Customers'], ['receivables', '💰 Receivables & Aging']];
+    const tabs = [['docs', '🧾 Document Billing Engine'], ['customers', '👥 Customers'], ['receivables', '💰 Receivables & Aging'], ['ledger', '📒 Ledger']];
     return `
     <div class="page-head"><div><h1>Sales & Outward Billing</h1><div class="sub">Proforma · Tax Invoices · Challans · Credit/Debit Notes · E-Way bills</div></div>
       <div class="flex" id="sales-actions"></div></div>
@@ -29,6 +29,7 @@ App.registerView('sales', {
       await this.renderCustomers(body);
     }
     if (tab === 'receivables') await this.renderAging(body);
+    if (tab === 'ledger') await this.renderLedger(body, params);
   },
 
   async renderDocs(body) {
@@ -273,5 +274,69 @@ App.registerView('sales', {
       ${UI.table(['doc_no', 'customer', { key: 'doc_date', label: 'Invoice Date' }, { key: 'due_date', label: 'Due Date' }, { key: 'outstanding', label: 'Outstanding', num: true }, { key: 'bucket', label: 'Bucket' }],
         rows, { outstanding: v => `<b>${UI.money(v)}</b>`, doc_date: v => UI.fmtDate(v), due_date: v => UI.fmtDate(v), bucket: v => UI.badge(v === 'Current' ? 'Active' : v === '90+' ? 'Overdue' : 'Pending') })}
       </div>`;
+  },
+  async renderLedger(body, params = {}) {
+    const { customers } = await UI.api('/api/customers');
+    const cid = params.customer_id || '';
+    body.innerHTML = `
+      <div class="panel"><h2>Party Ledger</h2>
+        <div class="flex" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+          <label class="field" style="min-width:300px;margin:0"><span>Customer</span>
+            <select id="lg-cust">
+              <option value="">All customers — outstanding summary</option>
+              ${customers.map(c => `<option value="${c.id}" ${String(c.id) === String(cid) ? 'selected' : ''}>${UI.esc(c.name)}</option>`).join('')}
+            </select></label>
+          <button class="btn btn-outline" id="lg-print">Print</button>
+        </div>
+        <div id="lg-out" class="mt"></div>
+      </div>`;
+    const out = document.getElementById('lg-out');
+    const load = async () => {
+      out.innerHTML = '<div class="empty">Loading…</div>';
+      const v = document.getElementById('lg-cust').value;
+      out.innerHTML = v ? await this.ledgerDetail(Number(v)) : await this.ledgerSummary();
+    };
+    document.getElementById('lg-cust').onchange = load;
+    document.getElementById('lg-print').onclick = () => {
+      const name = document.getElementById('lg-cust').selectedOptions[0].textContent;
+      const w = window.open('', '_blank');
+      if (!w) return UI.toast('Allow popups to print', 'err');
+      w.document.write(`<html><head><title>Ledger — ${UI.esc(name)}</title>${this.ledgerCss()}</head><body><h2>Ledger — ${UI.esc(name)}</h2>${out.innerHTML}</body></html>`);
+      w.document.close();
+      setTimeout(() => w.print(), 250);
+    };
+    await load();
+  },
+  async ledgerSummary() {
+    const { summary } = await UI.api('/api/salesdocs/ledger');
+    const t = summary.reduce((a, r) => ({ debit: a.debit + r.debit, credit: a.credit + r.credit, balance: a.balance + r.balance }), { debit: 0, credit: 0, balance: 0 });
+    return UI.table(['name', { key: 'debit', label: 'Total Billed', num: true }, { key: 'credit', label: 'Received', num: true }, { key: 'balance', label: 'Balance Due', num: true }],
+      summary, {
+      name: v => `<b>${UI.esc(v)}</b>`, debit: v => UI.money(v), credit: v => UI.money(v),
+      balance: v => `<b style="color:${Number(v) > 0 ? 'var(--red)' : 'inherit'}">${UI.money(v)}</b>`
+    }) + `<div class="k-sub mt">Total billed ${UI.money(t.debit)} · received ${UI.money(t.credit)} · outstanding ${UI.money(t.balance)}</div>`;
+  },
+  async ledgerDetail(cid) {
+    const d = await UI.api('/api/salesdocs/ledger?customer_id=' + cid);
+    const rows = d.entries.map(e => `<tr>
+      <td>${UI.fmtDate(e.date)}</td><td><b>${UI.esc(e.doc_no)}</b></td><td>${UI.badge(e.type)}</td>
+      <td class="num">${e.debit ? UI.money(e.debit) : '—'}</td>
+      <td class="num">${e.credit ? UI.money(e.credit) : '—'}</td>
+      <td class="num"><b>${UI.money(e.balance)}</b></td></tr>`).join('');
+    const openRow = d.opening ? `<tr><td colspan="5"><b>Opening Balance</b></td><td class="num"><b>${UI.money(d.opening)}</b></td></tr>` : '';
+    return `
+      <div class="k-sub mb">${UI.esc(d.customer.name)}${d.customer.gstin ? ' · GSTIN ' + UI.esc(d.customer.gstin) : ''}${d.customer.place_of_supply ? ' · ' + UI.esc(d.customer.place_of_supply) : ''}</div>
+      <div class="table-wrap"><table class="data"><thead><tr>
+        <th>Date</th><th>Doc #</th><th>Type</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th>
+      </tr></thead><tbody>${openRow}${rows || '<tr><td colspan="6">No transactions</td></tr>'}</tbody>
+      <tfoot><tr><td colspan="3"><b>Totals</b></td>
+        <td class="num"><b>${UI.money(d.totals.debit)}</b></td>
+        <td class="num"><b>${UI.money(d.totals.credit)}</b></td>
+        <td class="num"><b>${UI.money(d.closing)}</b></td></tr></tfoot></table></div>`;
+  },
+  ledgerCss() {
+    return `<style>body{font-family:Arial,Helvetica,sans-serif;color:#202124;padding:24px;font-size:13px}
+      h2{margin:0 0 16px}.data{width:100%;border-collapse:collapse}.data th,.data td{border:1px solid #dadce0;padding:6px 8px;text-align:left}
+      .data .num{text-align:right}.data th{background:#f1f3f4}.k-sub{color:#5f6368;margin-bottom:10px}</style>`;
   }
 });

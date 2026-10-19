@@ -50,6 +50,57 @@ router.get('/aging', requireModule('sales'), async (req, res) => {
   res.json({ rows, buckets });
 });
 
+router.get('/ledger', requireModule('sales'), async (req, res) => {
+  const cid = Number(req.query.customer_id) || null;
+  const from = req.query.from || null;
+  const to = req.query.to || null;
+  if (!cid) {
+    const [rows] = await pool.query(
+      `SELECT c.id, c.name,
+         COALESCE(d.debit,0) debit, COALESCE(r.credit,0) credit
+       FROM customers c
+       LEFT JOIN (SELECT customer_id,
+                    SUM(CASE WHEN doc_type='CreditNote' THEN -ABS(grand_total) ELSE grand_total END) debit
+                  FROM sales_documents
+                  WHERE tenant_id=? AND status<>'Cancelled' AND doc_type IN ('TaxInvoice','DebitNote','CreditNote')
+                  GROUP BY customer_id) d ON d.customer_id=c.id
+       LEFT JOIN (SELECT customer_id, SUM(amount) credit FROM receipts WHERE tenant_id=? GROUP BY customer_id) r ON r.customer_id=c.id
+       WHERE c.tenant_id=? AND c.is_active=1 ORDER BY c.name`, [tid(req), tid(req), tid(req)]);
+    return res.json({ summary: rows.map(x => ({ ...x, debit: Number(x.debit), credit: Number(x.credit), balance: Number(x.debit) - Number(x.credit) })) });
+  }
+  const [[cust]] = await pool.query('SELECT * FROM customers WHERE id=? AND tenant_id=?', [cid, tid(req)]);
+  if (!cust) return res.status(404).json({ error: 'Customer not found' });
+  const union = `
+    SELECT d.doc_date dt, d.doc_no, d.doc_type type, d.id rid,
+      CASE WHEN d.doc_type='CreditNote' THEN 0 ELSE d.grand_total END debit,
+      CASE WHEN d.doc_type='CreditNote' THEN ABS(d.grand_total) ELSE 0 END credit
+    FROM sales_documents d
+    WHERE d.tenant_id=? AND d.customer_id=? AND d.doc_type IN ('TaxInvoice','DebitNote','CreditNote') AND d.status<>'Cancelled'
+    UNION ALL
+    SELECT r.receipt_date dt, r.receipt_no, 'Receipt' type, r.id rid, 0 debit, r.amount credit
+    FROM receipts r WHERE r.tenant_id=? AND r.customer_id=?`;
+  const base = [tid(req), cid, tid(req), cid];
+  let sql = `SELECT * FROM (${union}) t`;
+  const p = [...base];
+  if (from) { sql += ' WHERE dt >= ?'; p.push(from); }
+  if (to) { sql += (from ? ' AND' : ' WHERE') + ' dt <= ?'; p.push(to); }
+  sql += ' ORDER BY dt, rid';
+  const [rows] = await pool.query(sql, p);
+  let opening = 0;
+  if (from) {
+    const [[o]] = await pool.query(`SELECT COALESCE(SUM(debit-credit),0) bal FROM (${union}) t WHERE dt < ?`, [...base, from]);
+    opening = Number(o.bal);
+  }
+  let bal = opening;
+  const entries = rows.map(r => {
+    const debit = Number(r.debit), credit = Number(r.credit);
+    bal += debit - credit;
+    return { date: r.dt, doc_no: r.doc_no, type: r.type, debit, credit, balance: bal };
+  });
+  const totals = entries.reduce((a, e) => ({ debit: a.debit + e.debit, credit: a.credit + e.credit }), { debit: 0, credit: 0 });
+  res.json({ customer: { id: cust.id, name: cust.name, gstin: cust.gstin, place_of_supply: cust.place_of_supply }, opening, entries, totals, closing: bal });
+});
+
 router.get('/:id', requireModule('sales'), async (req, res) => {
   const [[doc]] = await pool.query(
     `SELECT d.*, c.name customer_name, c.gstin customer_gstin, c.address customer_address, c.state_code customer_state, c.place_of_supply
