@@ -1,14 +1,16 @@
 App.registerView('sales', {
   async render(params) {
+    if (params.new) return await this.renderDocForm(params.new);
     const tab = params.tab || 'docs';
     const tabs = [['docs', '🧾 Document Billing Engine'], ['customers', '👥 Customers'], ['receivables', '💰 Receivables & Aging'], ['ledger', '📒 Ledger']];
     return `
-    <div class="page-head"><div><h1>Sales & Outward Billing</h1><div class="sub">Proforma · Tax Invoices · Challans · Credit/Debit Notes · E-Way bills</div></div>
+    <div class="page-head"><div><h1>Sales & Outward Billing</h1><div class="sub">Quotations · Tax Invoices · Challans · Credit/Debit Notes · E-Way bills</div></div>
       <div class="flex" id="sales-actions"></div></div>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${tab === k ? 'active' : ''}" onclick="App.navigate('#/sales?tab=${k}')">${l}</button>`).join('')}</div>
     <div id="sales-body"><div class="empty">Loading…</div></div>`;
   },
   async mount(params) {
+    if (params.new) return await this.mountDocForm(params.new, params.from_lead);
     const tab = params.tab || 'docs';
     const body = document.getElementById('sales-body');
     const actions = document.getElementById('sales-actions');
@@ -16,11 +18,14 @@ App.registerView('sales', {
     if (tab === 'docs') {
       actions.innerHTML = `
         <button class="btn btn-outline" id="btn-challan">+ Delivery Challan</button>
-        <button class="btn btn-primary" id="btn-invoice">+ New Tax Invoice</button>`;
-      document.getElementById('btn-invoice').onclick = () => this.docForm('TaxInvoice');
-      document.getElementById('btn-challan').onclick = () => this.docForm('DeliveryChallan');
+        <button class="btn btn-outline" id="btn-quote">+ Quotation</button>
+        <button class="btn btn-outline" id="btn-invoice">+ Invoice</button>
+        <button class="btn btn-primary" id="btn-taxinvoice">+ New Tax Invoice</button>`;
+      document.getElementById('btn-taxinvoice').onclick = () => App.navigate('#/sales?new=TaxInvoice');
+      document.getElementById('btn-invoice').onclick = () => App.navigate('#/sales?new=Invoice');
+      document.getElementById('btn-quote').onclick = () => App.navigate('#/sales?new=Quotation');
+      document.getElementById('btn-challan').onclick = () => App.navigate('#/sales?new=DeliveryChallan');
       await this.renderDocs(body);
-      if (params.new) this.docForm(params.new);
       if (params.id) { const d = (await UI.api('/api/salesdocs')).docs.find(x => x.doc_no === params.id); if (d) this.docDetail(d.id); }
     }
     if (tab === 'customers') {
@@ -48,33 +53,43 @@ App.registerView('sales', {
       })}</div>`;
   },
 
-  async docForm(doc_type, fromLead) {
+  async renderDocForm(doc_type) {
     const [{ customers }, { items }, { warehouses }] = await Promise.all([
       UI.api('/api/customers'), UI.api('/api/items').catch(() => ({ items: [] })), UI.api('/api/warehouses').catch(() => ({ warehouses: [] }))
     ]);
-    const typeLabels = { Proforma: 'Proforma Invoice', TaxInvoice: 'GST Tax Invoice', DeliveryChallan: 'Delivery Receipt / Challan', CreditNote: 'Credit Note', DebitNote: 'Debit Note' };
-    const b = UI.modal(`New ${typeLabels[doc_type] || doc_type}`, `
+    const typeLabels = { Quotation: 'Quotation', Proforma: 'Proforma Invoice', TaxInvoice: 'GST Tax Invoice', Invoice: 'Invoice', DeliveryChallan: 'Delivery Receipt / Challan', CreditNote: 'Credit Note', DebitNote: 'Debit Note' };
+    const label = typeLabels[doc_type] || doc_type;
+    return `
+    <div class="page-head">
+      <div><h1>New ${doc_type === 'TaxInvoice' ? 'Tax Invoice' : UI.esc(label)}</h1><div class="sub">${doc_type === 'Quotation' ? 'Send to client · accept to record their purchase order' : 'Enter line items; taxes and totals update live'}</div></div>
+      <div class="flex">
+        <button class="btn btn-outline" id="df-cancel">← Back to Sales</button>
+        <button class="btn btn-primary" id="dl-save">Generate ${doc_type === 'TaxInvoice' ? 'Tax Invoice' : (doc_type === 'Quotation' ? 'Quotation' : (doc_type === 'Invoice' ? 'Invoice' : 'Document'))}</button>
+      </div></div>
+    <div class="panel"><h2>Document Details</h2>
       <div class="form-grid" id="df">
         ${UI.select('customer_id', 'Customer *', customers.map(c => ({ value: c.id, label: `${c.name} (${c.gstin || 'URP'})` })))}
         ${UI.select('warehouse_id', 'Dispatch Warehouse', warehouses.map(w => ({ value: w.id, label: w.name })), 1)}
         ${UI.field('place_of_supply', 'Place of Supply', 'Maharashtra (27)')}
         ${UI.field('po_ref', 'Customer PO Ref')}
-        ${doc_type === 'TaxInvoice' || doc_type === 'DeliveryChallan' ? `
+        ${doc_type === 'Quotation' ? UI.field('due_date', 'Valid Until', '', 'date') : ''}
+        ${doc_type === 'TaxInvoice' || doc_type === 'Invoice' || doc_type === 'DeliveryChallan' ? `
         ${UI.field('carrier', 'Carrier')}
         ${UI.field('eway_awb', 'E-Way Bill / AWB #')}
         ${UI.field('due_date', 'Payment Due Date', '', 'date')}` : ''}
-      </div>
-      <h3>Items</h3>
-      <div id="dl-lines"></div>
-      <button class="btn btn-outline btn-sm" id="dl-add">+ Add line</button>
-      <div class="card mt" id="dl-totals" style="text-align:right"></div>`,
-      `<button class="btn btn-outline" onclick="UI.closeModal()">Cancel</button>
-       <button class="btn btn-primary" id="dl-save">Generate ${doc_type === 'TaxInvoice' ? 'Tax Invoice' : 'Document'}</button>`);
-    const lines = b.querySelector('#dl-lines');
-    const totals = b.querySelector('#dl-totals');
+      </div></div>
+    <div class="panel"><h2>Line Items <button class="btn btn-outline btn-sm" id="dl-add">+ Add line</button></h2>
+      <div id="dl-lines"></div></div>
+    <div class="panel" id="dl-totals" style="text-align:right"></div>`;
+  },
+
+  async mountDocForm(doc_type, fromLead) {
+    const [{ items }] = await Promise.all([UI.api('/api/items').catch(() => ({ items: [] }))]);
+    const lines = document.querySelector('#dl-lines');
+    const totals = document.querySelector('#dl-totals');
     const recalc = () => {
       let taxable = 0, tax = 0;
-      const pos = b.querySelector('[name=place_of_supply]').value;
+      const pos = document.querySelector('[name=place_of_supply]').value;
       const inter = !pos.startsWith('Maharashtra');
       lines.querySelectorAll('.form-grid').forEach(g => {
         const qty = Number(g.querySelector('[name=qty]').value || 0), rate = Number(g.querySelector('[name=unit_price]').value || 0), gst = Number(g.querySelector('[name=gst_rate]').value || 0);
@@ -112,10 +127,11 @@ App.registerView('sales', {
       recalc();
     };
     addLine(items[0]);
-    b.querySelector('#dl-add').onclick = () => addLine();
-    b.querySelector('[name=place_of_supply]').addEventListener('input', recalc);
+    document.querySelector('#dl-add').onclick = () => addLine();
+    document.querySelector('#df-cancel').onclick = () => App.navigate('#/sales?tab=docs');
+    document.querySelector('[name=place_of_supply]').addEventListener('input', recalc);
     recalc();
-    b.querySelector('#dl-save').onclick = async () => {
+    document.querySelector('#dl-save').onclick = async () => {
       const head = UI.formValues('df');
       const its = [...lines.querySelectorAll('.form-grid')].map(g => {
         const o = {}; g.querySelectorAll('[name]').forEach(el => o[el.name] = el.type === 'number' ? Number(el.value || 0) : el.value.trim());
@@ -124,7 +140,6 @@ App.registerView('sales', {
       if (!head.customer_id || !its.length) return UI.toast('Customer and lines required', 'err');
       try {
         const r = await UI.api('/api/salesdocs', { method: 'POST', body: { ...head, doc_type, items: its, from_lead: fromLead } });
-        UI.closeModal();
         UI.toast(`${r.doc_no} generated — total ${UI.money(r.grand_total)}${r.gst.inter ? ' (IGST)' : ' (CGST+SGST)'}`, 'ok');
         App.navigate('#/sales?tab=docs');
       } catch (e) { UI.toast(e.message, 'err'); }
@@ -150,29 +165,40 @@ App.registerView('sales', {
         Paid: ${UI.money(doc.paid_amount)} · Balance: <b style="color:${bal > 0 ? 'var(--red)' : 'var(--green)'}">${UI.money(bal)}</b>
       </div>
       <div class="pill-group mt">
-        <button class="btn btn-outline btn-sm" id="d-print">🖨 Print Invoice</button>
+        <button class="btn btn-outline btn-sm" id="d-print">🖨 Print${doc.doc_type === 'Quotation' ? ' Quotation' : ' Invoice'}</button>
+        ${doc.doc_type === 'Quotation' ? (doc.status === 'Accepted' ? `
+        <button class="btn btn-primary btn-sm" id="q-project">📂 Create Project</button>` : `
+        ${doc.status === 'Draft' ? `<button class="btn btn-outline btn-sm" id="q-send">Mark Sent</button>` : ''}
+        <button class="btn btn-primary btn-sm" id="q-accept">✓ Accept — Record Client PO</button>
+        <button class="btn btn-outline btn-sm" id="q-reject">Reject</button>`) : ''}
         ${doc.doc_type === 'TaxInvoice' ? `
         <button class="btn btn-tonal btn-sm" id="d-eway">⬇ E-Way Bill JSON</button>
         <button class="btn btn-tonal btn-sm" id="d-cn">+ Credit Note</button>
-        <button class="btn btn-tonal btn-sm" id="d-dn">+ Debit Note</button>
+        <button class="btn btn-tonal btn-sm" id="d-dn">+ Debit Note</button>` : ''}
+        ${doc.doc_type === 'TaxInvoice' || doc.doc_type === 'Invoice' ? `
         <button class="btn btn-primary btn-sm" id="d-pay">Record Payment</button>` : ''}
+        ${doc.doc_type === 'Quotation' ? '' : `
         <button class="btn btn-outline btn-sm" id="d-ship">Update Shipment</button>
-        <button class="btn btn-outline btn-sm" id="d-del">Mark Delivered</button>
+        <button class="btn btn-outline btn-sm" id="d-del">Mark Delivered</button>`}
       </div>`,
       `<button class="btn btn-outline" onclick="UI.closeModal()">Close</button>`);
     const dl = (url, name) => fetch(url, { headers: {} }).then(r => r.blob()).then(blob => {
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
     }).catch(e => UI.toast(e.message, 'err'));
     b.querySelector('#d-print').onclick = () => App.views.settings.openInvoicePrint(doc, items);
+    b.querySelector('#q-send')?.addEventListener('click', () => this.setQuoteStatus(id, 'Sent'));
+    b.querySelector('#q-reject')?.addEventListener('click', () => this.setQuoteStatus(id, 'Rejected'));
+    b.querySelector('#q-accept')?.addEventListener('click', () => { UI.closeModal(); this.acceptForm(id); });
+    b.querySelector('#q-project')?.addEventListener('click', () => { UI.closeModal(); this.projectFromQuote(id, doc); });
     b.querySelector('#d-eway')?.addEventListener('click', () => dl(`/api/salesdocs/${id}/eway-json`, `${doc.doc_no}_eway.json`));
     b.querySelector('#d-cn')?.addEventListener('click', () => { UI.closeModal(); this.noteForm(id, 'CreditNote'); });
     b.querySelector('#d-dn')?.addEventListener('click', () => { UI.closeModal(); this.noteForm(id, 'DebitNote'); });
     b.querySelector('#d-pay')?.addEventListener('click', () => { UI.closeModal(); this.payForm(id, bal); });
-    b.querySelector('#d-ship').onclick = () => { UI.closeModal(); this.shipForm(id); };
-    b.querySelector('#d-del').onclick = async () => {
+    b.querySelector('#d-ship')?.addEventListener('click', () => { UI.closeModal(); this.shipForm(id); });
+    b.querySelector('#d-del')?.addEventListener('click', async () => {
       try { await UI.api(`/api/salesdocs/${id}/deliver`, { method: 'POST' }); UI.closeModal(); UI.toast('Marked delivered', 'ok'); App.navigate('#/sales?tab=docs'); }
       catch (e) { UI.toast(e.message, 'err'); }
-    };
+    });
   },
   async noteForm(id, note_type) {
     const b = UI.modal(note_type === 'CreditNote' ? 'Issue Credit Note' : 'Issue Debit Note', `
@@ -221,6 +247,50 @@ App.registerView('sales', {
     b.querySelector('#s-save').onclick = async () => {
       try { await UI.api(`/api/salesdocs/${id}/ship`, { method: 'POST', body: UI.formValues('sf') }); UI.closeModal(); UI.toast('Shipment updated', 'ok'); App.navigate('#/sales?tab=docs'); }
       catch (e) { UI.toast(e.message, 'err'); }
+    };
+  },
+  async setQuoteStatus(id, status) {
+    try { await UI.api(`/api/salesdocs/${id}/status`, { method: 'POST', body: { status } }); UI.closeModal(); UI.toast(`Quotation marked ${status}`, 'ok'); this.docDetail(id); }
+    catch (e) { UI.toast(e.message, 'err'); }
+  },
+  async acceptForm(id) {
+    const b = UI.modal('Accept Quotation — Record Client PO', `
+      <p class="k-sub">Enter the purchase order your client issued against this quotation.</p>
+      <div class="form-grid" id="af">
+        ${UI.field('po_ref', 'Client PO Number')}
+        ${UI.field('customer_po_date', 'Client PO Date', new Date().toISOString().slice(0, 10), 'date')}
+      </div>${UI.textarea('notes', 'Notes (optional)')}`,
+      `<button class="btn btn-outline" onclick="UI.closeModal()">Cancel</button>
+       <button class="btn btn-primary" id="a-save">Accept Quotation</button>`);
+    b.querySelector('#a-save').onclick = async () => {
+      const d = UI.formValues('af'); d.notes = b.querySelector('[name=notes]').value;
+      if (!d.po_ref) return UI.toast('Client PO number required', 'err');
+      try { await UI.api(`/api/salesdocs/${id}/accept`, { method: 'POST', body: d }); UI.closeModal(); UI.toast('Quotation accepted', 'ok'); this.docDetail(id); }
+      catch (e) { UI.toast(e.message, 'err'); }
+    };
+  },
+  async projectFromQuote(id, doc) {
+    const { projects } = await UI.api('/api/projects').catch(() => ({ projects: [] }));
+    let max = 0;
+    projects.forEach(p => { const m = /^PRJ-(\d+)$/.exec(p.code || ''); if (m) max = Math.max(max, Number(m[1])); });
+    const b = UI.modal('Create Project from Quotation', `
+      <p class="k-sub">${UI.esc(doc.doc_no)} · ${UI.esc(doc.customer_name)}${doc.po_ref ? ' · Client PO ' + UI.esc(doc.po_ref) : ''}</p>
+      <div class="form-grid" id="qp">
+        ${UI.field('code', 'Project Code *', 'PRJ-' + (max + 1))}
+        ${UI.field('name', 'Project Name *', `${doc.customer_name} — ${doc.doc_no}`)}
+        ${UI.field('client_name', 'Client', doc.customer_name)}
+        ${UI.field('budget', 'Budget (₹)', doc.grand_total, 'number', 'step="any"')}
+        ${UI.field('start_date', 'Start Date', new Date().toISOString().slice(0, 10), 'date')}
+      </div>${UI.textarea('notes', 'Notes', '')}`,
+      `<button class="btn btn-outline" onclick="UI.closeModal()">Cancel</button>
+       <button class="btn btn-primary" id="qp-save">Create Project</button>`);
+    b.querySelector('#qp-save').onclick = async () => {
+      const d = UI.formValues('qp'); d.notes = b.querySelector('[name=notes]').value;
+      if (!d.code || !d.name) return UI.toast('Code & name required', 'err');
+      try {
+        const r = await UI.api(`/api/salesdocs/${id}/create-project`, { method: 'POST', body: d });
+        UI.closeModal(); UI.toast(`Project ${d.code} created`, 'ok'); App.navigate('#/projects?id=' + r.id);
+      } catch (e) { UI.toast(e.message, 'err'); }
     };
   },
 

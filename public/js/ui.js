@@ -14,7 +14,8 @@ const UI = {
       'Delivered': 'b-green', 'Paid': 'b-green', 'Matched': 'b-green', 'Won': 'b-green', 'Active': 'b-green', 'Reconciled': 'b-green', 'Filed': 'b-green',
       'In-Transit': 'b-amber', 'Shipped': 'b-amber', 'Pending': 'b-amber', 'Partially Paid': 'b-amber', 'Open': 'b-amber', 'On Hold': 'b-amber', 'Draft': 'b-gray', 'Received': 'b-blue',
       'Overdue': 'b-red', 'Lost': 'b-red', 'TaxMismatch': 'b-red', 'Unmatched': 'b-red', 'MissingInERP': 'b-red', 'Cancelled': 'b-red', 'Pending GSTR-1': 'b-amber',
-      'Ordered': 'b-blue', 'TaxInvoice': 'b-blue', 'Proforma': 'b-purple', 'DeliveryChallan': 'b-gray', 'CreditNote': 'b-red', 'DebitNote': 'b-amber', 'Reconciled': 'b-green'
+      'Ordered': 'b-blue', 'TaxInvoice': 'b-blue', 'Invoice': 'b-purple', 'Quotation': 'b-purple', 'Proforma': 'b-purple', 'DeliveryChallan': 'b-gray', 'CreditNote': 'b-red', 'DebitNote': 'b-amber', 'Reconciled': 'b-green',
+      'Sent': 'b-blue', 'Accepted': 'b-green', 'Rejected': 'b-red', 'Draft': 'b-gray'
     };
     return `<span class="badge ${map[status] || 'b-gray'}">${UI.esc(status)}</span>`;
   },

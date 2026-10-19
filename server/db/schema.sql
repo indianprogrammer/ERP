@@ -309,7 +309,7 @@ CREATE TABLE sales_documents (
   id INT AUTO_INCREMENT PRIMARY KEY,
   tenant_id INT NOT NULL,
   doc_no VARCHAR(30) NOT NULL,
-  doc_type VARCHAR(30) NOT NULL, -- Proforma, TaxInvoice, DeliveryChallan, CreditNote, DebitNote
+  doc_type VARCHAR(30) NOT NULL, -- Quotation, Proforma, TaxInvoice, Invoice, DeliveryChallan, CreditNote, DebitNote
   customer_id INT NOT NULL,
   project_id INT NULL,
   warehouse_id INT NULL,
@@ -327,6 +327,7 @@ CREATE TABLE sales_documents (
   grand_total DECIMAL(14,2) NOT NULL DEFAULT 0,
   paid_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
   due_date DATE NULL,
+  customer_po_date DATE NULL,
   notes VARCHAR(400) DEFAULT '',
   created_by INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

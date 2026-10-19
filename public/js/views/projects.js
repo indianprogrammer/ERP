@@ -69,7 +69,7 @@ App.registerView('projects', {
        <button class="btn btn-primary" id="p-exp">+ Expense</button>`);
     const fill = (type) => {
       const sel = b.querySelector('#lnk-id');
-      const opts = type === 'SALE' ? docs.filter(d => d.doc_type === 'TaxInvoice').map(d => ({ v: d.id, l: `${d.doc_no} · ${d.customer_name}` }))
+      const opts = type === 'SALE' ? docs.filter(d => d.doc_type === 'TaxInvoice' || d.doc_type === 'Invoice').map(d => ({ v: d.id, l: `${d.doc_no} · ${d.customer_name}` }))
         : pos.map(p2 => ({ v: p2.id, l: `${p2.po_no} · ${p2.vendor_name}` }));
       sel.innerHTML = opts.map(o => `<option value="${o.v}">${UI.esc(o.l)}</option>`).join('');
     };

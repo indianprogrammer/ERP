@@ -6,8 +6,16 @@ const router = express.Router();
 
 const SELLER = { name: 'X3M Systems Pvt Ltd', gstin: '27AAAAA0000A1Z5', pan: 'AAAAA0000A', address: 'BKC, Mumbai 400051', state_code: '27' };
 const OUR_STATE = '27';
-const PREFIX = { Proforma: 'PI', TaxInvoice: 'INV', DeliveryChallan: 'CH', CreditNote: 'CN', DebitNote: 'DN' };
+const PREFIX = { Quotation: 'QTN', Proforma: 'PI', TaxInvoice: 'INV', Invoice: 'BILL', DeliveryChallan: 'CH', CreditNote: 'CN', DebitNote: 'DN' };
 const tid = (req) => req.tenantId;
+
+async function nextDocNo(doc_type, req) {
+  const prefix = `${PREFIX[doc_type] || 'DOC'}-${new Date().getFullYear()}-`;
+  const [rows] = await pool.query('SELECT doc_no FROM sales_documents WHERE tenant_id=? AND doc_no LIKE ?', [tid(req), prefix + '%']);
+  let max = 0;
+  for (const r of rows) { const n = parseInt(String(r.doc_no).slice(prefix.length), 10); if (n > max) max = n; }
+  return prefix + String(max + 1).padStart(3, '0');
+}
 
 function computeGst(items, placeOfSupply) {
   const inter = String(placeOfSupply || '').includes('(') ? placeOfSupply.match(/\((\d+)\)/)?.[1] : null;
@@ -43,7 +51,7 @@ router.get('/aging', requireModule('sales'), async (req, res) => {
         WHEN DATEDIFF(CURDATE(), COALESCE(d.due_date, DATE_ADD(d.doc_date, INTERVAL 30 DAY))) <= 90 THEN '61-90'
         ELSE '90+' END bucket
      FROM sales_documents d JOIN customers c ON c.id=d.customer_id AND c.tenant_id=?
-     WHERE d.tenant_id=? AND d.doc_type='TaxInvoice' AND d.grand_total > d.paid_amount AND d.status <> 'Cancelled'
+     WHERE d.tenant_id=? AND d.doc_type IN ('TaxInvoice','Invoice') AND d.grand_total > d.paid_amount AND d.status <> 'Cancelled'
      ORDER BY d.due_date`, [tid(req), tid(req)]);
   const buckets = { Current: 0, '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
   for (const r of rows) buckets[r.bucket] += Number(r.outstanding);
@@ -62,7 +70,7 @@ router.get('/ledger', requireModule('sales'), async (req, res) => {
        LEFT JOIN (SELECT customer_id,
                     SUM(CASE WHEN doc_type='CreditNote' THEN -ABS(grand_total) ELSE grand_total END) debit
                   FROM sales_documents
-                  WHERE tenant_id=? AND status<>'Cancelled' AND doc_type IN ('TaxInvoice','DebitNote','CreditNote')
+                  WHERE tenant_id=? AND status<>'Cancelled' AND doc_type IN ('TaxInvoice','Invoice','DebitNote','CreditNote')
                   GROUP BY customer_id) d ON d.customer_id=c.id
        LEFT JOIN (SELECT customer_id, SUM(amount) credit FROM receipts WHERE tenant_id=? GROUP BY customer_id) r ON r.customer_id=c.id
        WHERE c.tenant_id=? AND c.is_active=1 ORDER BY c.name`, [tid(req), tid(req), tid(req)]);
@@ -75,7 +83,7 @@ router.get('/ledger', requireModule('sales'), async (req, res) => {
       CASE WHEN d.doc_type='CreditNote' THEN 0 ELSE d.grand_total END debit,
       CASE WHEN d.doc_type='CreditNote' THEN ABS(d.grand_total) ELSE 0 END credit
     FROM sales_documents d
-    WHERE d.tenant_id=? AND d.customer_id=? AND d.doc_type IN ('TaxInvoice','DebitNote','CreditNote') AND d.status<>'Cancelled'
+    WHERE d.tenant_id=? AND d.customer_id=? AND d.doc_type IN ('TaxInvoice','Invoice','DebitNote','CreditNote') AND d.status<>'Cancelled'
     UNION ALL
     SELECT r.receipt_date dt, r.receipt_no, 'Receipt' type, r.id rid, 0 debit, r.amount credit
     FROM receipts r WHERE r.tenant_id=? AND r.customer_id=?`;
@@ -118,15 +126,14 @@ router.post('/', requireModule('sales', 'can_create'), async (req, res) => {
   const [[cust]] = await pool.query('SELECT * FROM customers WHERE id=? AND tenant_id=?', [customer_id, tid(req)]);
   const pos = place_of_supply || cust?.place_of_supply || 'Maharashtra (27)';
   const g = computeGst(items, pos);
-  const [[{ c: cnt }]] = await pool.query('SELECT COUNT(*) c FROM sales_documents WHERE tenant_id=?', [tid(req)]);
-  const doc_no = `${PREFIX[doc_type] || 'DOC'}-${new Date().getFullYear()}-${String(cnt + 1).padStart(3, '0')}`;
+  const doc_no = await nextDocNo(doc_type, req);
   const isCredit = doc_type === 'CreditNote';
   const sign = isCredit ? -1 : 1;
   const [r] = await pool.query(
     `INSERT INTO sales_documents (tenant_id,doc_no,doc_type,customer_id,project_id,warehouse_id,doc_date,place_of_supply,po_ref,carrier,eway_awb,status,gst_status,taxable_value,cgst,sgst,igst,grand_total,due_date,notes,created_by)
      VALUES (?,?,?,?, ?, ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [tid(req), doc_no, doc_type, customer_id, project_id || null, warehouse_id || null, pos, po_ref || '', carrier || '', eway_awb || '',
-      doc_type === 'TaxInvoice' ? 'Issued' : (doc_type === 'DeliveryChallan' ? 'Dispatched' : 'Issued'),
+      doc_type === 'Quotation' ? 'Draft' : (doc_type === 'TaxInvoice' ? 'Issued' : (doc_type === 'DeliveryChallan' ? 'Dispatched' : 'Issued')),
       doc_type === 'TaxInvoice' ? 'Pending GSTR-1' : 'N/A',
       sign * g.taxable, sign * g.cgst, sign * g.sgst, sign * g.igst, sign * g.grand,
       due_date || null, notes || '', req.session.user.id]);
@@ -135,7 +142,7 @@ router.post('/', requireModule('sales', 'can_create'), async (req, res) => {
       [tid(req), r.insertId, ln.item_id || null, ln.description || '', ln.hsn_sac || '', ln.qty || 1, ln.unit_price || 0, ln.gst_rate ?? 18, sign * ln.amount]);
   }
   if (project_id) await pool.query('INSERT IGNORE INTO project_links (tenant_id,project_id,ref_type,ref_id,amount) VALUES (?,?,\'SALE\',?,?)', [tid(req), project_id, r.insertId, sign * g.grand]);
-  if (doc_type === 'TaxInvoice' || doc_type === 'DeliveryChallan') {
+  if (doc_type === 'TaxInvoice' || doc_type === 'Invoice' || doc_type === 'DeliveryChallan') {
     await deductStockForDoc(r.insertId, req.session.user.id, tid(req));
     if (carrier || eway_awb) {
       await pool.query('INSERT INTO shipments (tenant_id,sales_doc_id,carrier,awb_no,status,shipped_date) VALUES (?,?,?,?,\'In-Transit\',CURDATE())',
@@ -193,8 +200,7 @@ router.post('/:id/credit-debit', requireModule('sales', 'can_create'), async (re
   const srcItems = items?.length ? items : (await pool.query('SELECT * FROM sales_doc_items WHERE doc_id=? AND tenant_id=?', [doc.id, tid(req)]))[0];
   const pos = doc.place_of_supply;
   const g = computeGst(srcItems.map(i => ({ qty: note_type === 'CreditNote' ? -Math.abs(i.qty) : Math.abs(i.qty), unit_price: i.unit_price, gst_rate: i.gst_rate, description: i.description, item_id: i.item_id, hsn_sac: i.hsn_sac })), pos);
-  const [[{ c: cnt }]] = await pool.query('SELECT COUNT(*) c FROM sales_documents WHERE tenant_id=?', [tid(req)]);
-  const doc_no = `${PREFIX[note_type]}-${new Date().getFullYear()}-${String(cnt + 1).padStart(3, '0')}`;
+  const doc_no = await nextDocNo(note_type, req);
   const sign = note_type === 'CreditNote' ? -1 : 1;
   const [r] = await pool.query(
     `INSERT INTO sales_documents (tenant_id,doc_no,doc_type,customer_id,project_id,doc_date,place_of_supply,status,gst_status,taxable_value,cgst,sgst,igst,grand_total,notes,created_by)
@@ -248,6 +254,48 @@ router.post('/:id/mark-gst-filed', requireModule('gst', 'can_update'), async (re
   await pool.query('UPDATE sales_documents SET gst_status=\'Reconciled\' WHERE id=? AND tenant_id=?', [req.params.id, tid(req)]);
   await logAudit(req, 'GST_MARK', 'sales_doc', req.params.id);
   res.json({ ok: true });
+});
+
+router.post('/:id/mark-gst-filed', requireModule('gst', 'can_update'), async (req, res) => {
+  await pool.query('UPDATE sales_documents SET gst_status=\'Reconciled\' WHERE id=? AND tenant_id=?', [req.params.id, tid(req)]);
+  await logAudit(req, 'GST_MARK', 'sales_doc', req.params.id);
+  res.json({ ok: true });
+});
+
+router.post('/:id/status', requireModule('sales', 'can_update'), async (req, res) => {
+  const { status } = req.body;
+  if (!['Draft', 'Sent', 'Rejected'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  const [r] = await pool.query('UPDATE sales_documents SET status=? WHERE id=? AND tenant_id=? AND doc_type=\'Quotation\'', [status, req.params.id, tid(req)]);
+  if (!r.affectedRows) return res.status(404).json({ error: 'Quotation not found' });
+  await logAudit(req, 'QUOTATION_STATUS', 'quotation', `${req.params.id}→${status}`);
+  res.json({ ok: true });
+});
+
+router.post('/:id/accept', requireModule('sales', 'can_update'), async (req, res) => {
+  const { po_ref, customer_po_date, notes } = req.body;
+  const [[doc]] = await pool.query('SELECT id FROM sales_documents WHERE id=? AND tenant_id=? AND doc_type=\'Quotation\'', [req.params.id, tid(req)]);
+  if (!doc) return res.status(404).json({ error: 'Quotation not found' });
+  await pool.query('UPDATE sales_documents SET status=\'Accepted\', po_ref=?, customer_po_date=?, notes=COALESCE(NULLIF(?,\'\'),notes) WHERE id=? AND tenant_id=?',
+    [po_ref || '', customer_po_date || null, notes || '', req.params.id, tid(req)]);
+  await logAudit(req, 'QUOTATION_ACCEPTED', 'quotation', `${req.params.id} PO:${po_ref || '-'}`);
+  res.json({ ok: true });
+});
+
+router.post('/:id/create-project', requireModule('sales', 'can_create'), async (req, res) => {
+  const { code, name, client_name, budget, start_date, notes } = req.body;
+  if (!code || !name) return res.status(400).json({ error: 'Code and name required' });
+  const [[doc]] = await pool.query('SELECT * FROM sales_documents WHERE id=? AND tenant_id=? AND doc_type=\'Quotation\'', [req.params.id, tid(req)]);
+  if (!doc) return res.status(404).json({ error: 'Quotation not found' });
+  if (doc.status !== 'Accepted') return res.status(400).json({ error: 'Accept the quotation before creating a project' });
+  try {
+    const [r] = await pool.query('INSERT INTO projects (tenant_id,code,name,client_name,budget,start_date,notes) VALUES (?,?,?,?,?,?,?)',
+      [tid(req), code, name, client_name || '', budget || 0, start_date || null, notes || `From ${doc.doc_no}${doc.po_ref ? ' / PO ' + doc.po_ref : ''}`]);
+    await pool.query('INSERT IGNORE INTO project_links (tenant_id,project_id,ref_type,ref_id,amount) VALUES (?,?,\'SALE\',?,?)',
+      [tid(req), r.insertId, doc.id, doc.grand_total]);
+    await pool.query('UPDATE sales_documents SET project_id=? WHERE id=? AND tenant_id=?', [r.insertId, doc.id, tid(req)]);
+    await logAudit(req, 'CREATE', 'project', `${code} from ${doc.doc_no}`);
+    res.json({ id: r.insertId });
+  } catch (e) { res.status(400).json({ error: e.code === 'ER_DUP_ENTRY' ? 'Project code exists' : e.message }); }
 });
 
 module.exports = router;

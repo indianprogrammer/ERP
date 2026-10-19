@@ -19,12 +19,12 @@ router.get('/', async (req, res) => {
       recentDocs, recentReceipts, lowStockItems, openPos
     ] = await Promise.all([
       one(`SELECT COUNT(*) count, COALESCE(SUM(grand_total),0) total FROM sales_documents
-         WHERE tenant_id=? AND doc_type='TaxInvoice' AND status<>'Cancelled'`),
+         WHERE tenant_id=? AND doc_type IN ('TaxInvoice','Invoice') AND status<>'Cancelled'`),
       one(`SELECT COUNT(*) count, COALESCE(SUM(grand_total),0) total FROM sales_documents
-         WHERE tenant_id=? AND doc_type='TaxInvoice' AND status<>'Cancelled'
+         WHERE tenant_id=? AND doc_type IN ('TaxInvoice','Invoice') AND status<>'Cancelled'
          AND MONTH(doc_date)=MONTH(CURDATE()) AND YEAR(doc_date)=YEAR(CURDATE())`),
       one(`SELECT COUNT(*) count, COALESCE(SUM(grand_total-paid_amount),0) total FROM sales_documents
-         WHERE tenant_id=? AND doc_type='TaxInvoice' AND status<>'Cancelled' AND grand_total>paid_amount`),
+         WHERE tenant_id=? AND doc_type IN ('TaxInvoice','Invoice') AND status<>'Cancelled' AND grand_total>paid_amount`),
       one(`SELECT COUNT(*) count, COALESCE(SUM(amount),0) total FROM receipts
          WHERE tenant_id=? AND MONTH(receipt_date)=MONTH(CURDATE()) AND YEAR(receipt_date)=YEAR(CURDATE())`),
       one(`SELECT COALESCE(SUM(amount),0) total FROM expenses
