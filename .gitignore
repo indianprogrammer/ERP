@@ -13,6 +13,9 @@ logs/
 *.log
 npm-debug.log*
 
+# Runtime (service-control pid files)
+.run/
+
 # OS / editor
 .DS_Store
 Thumbs.db

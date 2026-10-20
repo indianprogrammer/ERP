@@ -73,6 +73,7 @@ App.registerView('expenses', {
           { key: 'amount', label: 'Amount', num: true },
           { key: 'expense_date', label: 'Date' },
           'created_by_name',
+          { key: '_doc', label: 'Document' },
           { key: '_d', label: '' }
         ], exp, {
           title: v => `<b>${UI.esc(v)}</b>`,
@@ -83,6 +84,7 @@ App.registerView('expenses', {
           amount: v => `<b>${UI.money(v)}</b>`,
           expense_date: v => UI.fmtDate(v),
           created_by_name: v => UI.esc(v || '—'),
+          _doc: (v, r) => r.attachment ? `<button class="link-btn" onclick="App.views.expenses.openDoc(${r.id})">📎 View</button>` : '<span class="k-sub">—</span>',
           _d: (v, r) => `<button class="link-btn danger" onclick="App.views.expenses.remove(${r.id}, '${UI.esc(r.title)}')">Delete</button>`
         });
     } catch (e) {
@@ -100,17 +102,37 @@ App.registerView('expenses', {
         ${UI.field('amount', 'Amount (₹) *', '', 'number', 'step="any" min="0"')}
         ${UI.field('expense_date', 'Date', new Date().toISOString().slice(0, 10), 'date')}
         ${UI.textarea('notes', 'Notes')}
+        <label class="field"><span>Voucher / Invoice (PDF or image, max 10 MB)</span>
+          <input type="file" id="ef-file" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.doc,.docx,.xls,.xlsx,.csv,.txt"></label>
       </div>`,
       `<button class="btn btn-outline" onclick="UI.closeModal()">Cancel</button>
        <button class="btn btn-primary" id="e-save">Save</button>`);
+    let attachment = null;
+    b.querySelector('#ef-file').onchange = async e => {
+      const f = e.target.files[0];
+      if (!f) { attachment = null; return; }
+      if (f.size > 10 * 1024 * 1024) { e.target.value = ''; attachment = null; return UI.toast('File too large (max 10 MB)', 'err'); }
+      try {
+        const fd = new FormData(); fd.append('file', f);
+        const res = await fetch('/api/expenses/upload', { method: 'POST', body: fd });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        attachment = data.attachment;
+        UI.toast(`Attached ${data.name}`, 'ok');
+      } catch (ex) { attachment = null; e.target.value = ''; UI.toast(ex.message, 'err'); }
+    };
     b.querySelector('#e-save').onclick = async () => {
       const d = UI.formValues('ef');
       if (!d.title || !d.amount) return UI.toast('Title & amount required', 'err');
       if (Number(d.amount) <= 0) return UI.toast('Amount must be greater than 0', 'err');
       if (!d.project_id) delete d.project_id;
+      if (attachment) d.attachment = attachment;
       try { await UI.api('/api/expenses', { method: 'POST', body: d }); UI.closeModal(); UI.toast('Expense saved', 'ok'); this.load(); }
       catch (e) { UI.toast(e.message, 'err'); }
     };
+  },
+  async openDoc(id) {
+    window.open(`/api/expenses/${id}/attachment`, '_blank', 'noopener');
   },
   async remove(id, title) {
     UI.confirm(`Delete expense "${title}"?`, async () => {

@@ -16,7 +16,7 @@ App.registerView('procurement', {
     const actions = document.getElementById('proc-actions');
     actions.innerHTML = '';
     if (tab === 'quotes') {
-      if (params.new) { actions.innerHTML = ''; this.renderNewRfq(body); }
+      if (params.new === 'rfq') { actions.innerHTML = ''; this.renderNewRfq(body, params); }
       else {
         actions.innerHTML = '<button class="btn btn-primary" id="btn-new-rfq">+ New RFQ</button>';
         document.getElementById('btn-new-rfq').onclick = () => App.navigate('#/procurement?tab=quotes&new=rfq');
@@ -24,8 +24,22 @@ App.registerView('procurement', {
       }
     }
     if (tab === 'vendors') { actions.innerHTML = '<button class="btn btn-primary" id="btn-new-vendor">+ New Vendor</button>'; document.getElementById('btn-new-vendor').onclick = () => this.vendorForm(); this.renderVendors(body); }
-    if (tab === 'pos') { actions.innerHTML = '<button class="btn btn-primary" id="btn-new-po">+ New PO</button>'; document.getElementById('btn-new-po').onclick = () => this.poForm(); this.renderPOs(body, params); }
+    if (tab === 'pos') {
+      actions.innerHTML = '<button class="btn btn-primary" id="btn-new-po">+ New PO</button>';
+      document.getElementById('btn-new-po').onclick = () => this.poForm();
+      await this.renderPOs(body, params);
+      if (params.new === 'po') this.poForm(await this._prefillFrom(params.source));
+    }
     if (tab === 'warranties') { actions.innerHTML = '<button class="btn btn-primary" id="btn-new-warr">+ Register Serial</button>'; document.getElementById('btn-new-warr').onclick = () => this.warrantyForm(); this.renderWarranties(body); }
+  },
+
+  // Fetch a client requirement (sales document) to pre-fill procurement forms
+  async _prefillFrom(sourceId) {
+    if (!sourceId) return null;
+    try {
+      const { doc, items } = await UI.api('/api/salesdocs/' + sourceId);
+      return { doc, items: items || [] };
+    } catch { return null; }
   },
 
   // ---------- Quote matrix ----------
@@ -144,15 +158,17 @@ App.registerView('procurement', {
       } catch (e) { UI.toast(e.message, 'err'); }
     };
   },
-  async renderNewRfq(body) {
+  async renderNewRfq(body, params = {}) {
+    const prefill = await this._prefillFrom(params.source);
     const { vendors } = await UI.api('/api/vendors');
     const vs = vendors.filter(v => v.is_active);
     body.innerHTML = `
       <div class="panel">
         <h2>New Request for Quotes (RFQ)
           <button class="btn btn-outline btn-sm" onclick="App.navigate('#/procurement?tab=quotes')">← All RFQs</button></h2>
+        ${prefill ? `<div class="k-sub mb">From requirement <b>${UI.esc(prefill.doc.doc_no)}</b> — ${UI.esc(prefill.doc.customer_name)}. Pick a vendor per line; create one RFQ per vendor if needed.</div>` : ''}
         <div class="form-grid" id="rq-meta">
-          ${UI.field('title', 'RFQ Title *')}
+          ${UI.field('title', 'RFQ Title *', prefill ? `${prefill.doc.customer_name} requirement` : '')}
           ${UI.field('due_date', 'Due Date', '', 'date')}
         </div>
         <div id="rq-lines" class="mt"></div>
@@ -163,24 +179,25 @@ App.registerView('procurement', {
         </div>
       </div>`;
     const lines = document.getElementById('rq-lines');
-    const addLine = () => {
+    const addLine = (p) => {
       const div = document.createElement('div');
       div.className = 'form-grid card mb';
       div.style.padding = '10px';
       div.innerHTML = `
-        ${UI.field('item_desc', 'Item Description *')}
+        ${UI.field('item_desc', 'Item Description *', p?.description || '')}
         ${UI.select('vendor_id', 'Vendor', vs.map(v => ({ value: v.id, label: v.name })))}
-        ${UI.field('qty', 'Qty', 1, 'number', 'step="any" min="0"')}
+        ${UI.field('qty', 'Qty', p?.qty || 1, 'number', 'step="any" min="0"')}
         ${UI.field('unit_price', 'Unit Price', '', 'number', 'step="any" min="0"')}
-        ${UI.field('gst_rate', 'GST %', 18, 'number', 'step="any"')}
+        ${UI.field('gst_rate', 'GST %', p?.gst_rate ?? 18, 'number', 'step="any"')}
         ${UI.field('lead_time_days', 'Lead Time (days)', 0, 'number')}
         ${UI.field('payment_terms', 'Payment Terms', 'Net 30')}
         <div style="grid-column:1/-1"><button class="link-btn danger rq-rm">Remove</button></div>`;
       div.querySelector('.rq-rm').onclick = () => div.remove();
       lines.appendChild(div);
     };
-    addLine(); addLine(); addLine();
-    document.getElementById('rq-add').onclick = addLine;
+    if (prefill && prefill.items.length) prefill.items.forEach(p => addLine(p));
+    else { addLine(); addLine(); addLine(); }
+    document.getElementById('rq-add').onclick = () => addLine();
     document.getElementById('rq-save').onclick = async () => {
       const title = document.querySelector('#rq-meta [name=title]').value.trim();
       const due_date = document.querySelector('#rq-meta [name=due_date]').value;
@@ -189,7 +206,9 @@ App.registerView('procurement', {
       }).filter(q => q.item_desc);
       if (!title || !quotes.length) return UI.toast('Title and at least one quote line required', 'err');
       try {
-        const r = await UI.api('/api/rfqs', { method: 'POST', body: { title, due_date, quotes } });
+        const payload = { title, due_date, quotes };
+        if (prefill) payload.source_doc_id = prefill.doc.id;
+        const r = await UI.api('/api/rfqs', { method: 'POST', body: payload });
         UI.toast(`RFQ ${r.rfq_no} created`, 'ok');
         App.navigate(`#/procurement?tab=quotes&rfq=${r.id}`);
       } catch (e) { UI.toast(e.message, 'err'); }
@@ -208,10 +227,11 @@ App.registerView('procurement', {
       })}</div>`;
     if (params.po) { const p = pos.find(x => x.po_no === params.po); if (p) this.poDetail(p.id); }
   },
-  async poForm() {
+  async poForm(prefill = null) {
     const { vendors } = await UI.api('/api/vendors');
     const { items } = await UI.api('/api/items').catch(() => ({ items: [] }));
     const b = UI.modal('New Purchase Order', `
+      ${prefill ? `<div class="k-sub mb">From requirement <b>${UI.esc(prefill.doc.doc_no)}</b> — ${UI.esc(prefill.doc.customer_name)}. Remove any lines you don't want to order.</div>` : ''}
       ${UI.select('vendor_id', 'Vendor *', vendors.filter(v => v.is_active).map(v => ({ value: v.id, label: v.name })))}
       <div id="po-lines"></div>
       <button class="btn btn-outline btn-sm" id="po-add">+ Add line</button>`,
@@ -223,9 +243,9 @@ App.registerView('procurement', {
       div.className = 'form-grid card mb'; div.style.padding = '10px';
       div.innerHTML = `
         ${UI.select('item_id', 'From Item Master', [{ value: '', label: '— custom —' }, ...(items || []).map(i => ({ value: i.id, label: `${i.sku} · ${i.name}` }))])}
-        ${UI.field('description', 'Description')}
-        ${UI.field('qty', 'Qty', 1, 'number', 'step="any"')}
-        ${UI.field('unit_price', 'Unit Price', item?.purchase_price || '', 'number', 'step="any"')}
+        ${UI.field('description', 'Description', item?.description || '')}
+        ${UI.field('qty', 'Qty', item?.qty || 1, 'number', 'step="any"')}
+        ${UI.field('unit_price', 'Unit Price', item?.unit_price ?? item?.purchase_price ?? '', 'number', 'step="any"')}
         ${UI.field('gst_rate', 'GST %', item?.gst_rate ?? 18, 'number', 'step="any"')}
         <div style="grid-column:1/-1"><button class="link-btn danger po-rm">Remove</button></div>`;
       div.querySelector('.po-rm').onclick = () => div.remove();
@@ -233,9 +253,11 @@ App.registerView('procurement', {
         const it = (items || []).find(i => String(i.id) === e.target.value);
         if (it) { div.querySelector('[name=description]').value = it.name; div.querySelector('[name=unit_price]').value = it.purchase_price; div.querySelector('[name=gst_rate]').value = it.gst_rate; }
       };
+      if (item?.item_id) div.querySelector('[name=item_id]').value = item.item_id;
       lines.appendChild(div);
     };
-    addLine();
+    if (prefill && prefill.items.length) prefill.items.forEach(it => addLine(it));
+    else addLine();
     b.querySelector('#po-add').onclick = () => addLine();
     b.querySelector('#po-save').onclick = async () => {
       const vendor_id = Number(b.querySelector('[name=vendor_id]').value);
@@ -245,7 +267,9 @@ App.registerView('procurement', {
       }).filter(i => i.description || i.item_id);
       if (!vendor_id || !itemsArr.length) return UI.toast('Vendor and lines required', 'err');
       try {
-        const r = await UI.api('/api/pos', { method: 'POST', body: { vendor_id, items: itemsArr } });
+        const body = { vendor_id, items: itemsArr };
+        if (prefill) body.source_doc_id = prefill.doc.id;
+        const r = await UI.api('/api/pos', { method: 'POST', body });
         UI.closeModal(); UI.toast(`PO ${r.po_no} created`, 'ok'); this.renderPOs(document.getElementById('proc-body'), {});
       } catch (e) { UI.toast(e.message, 'err'); }
     };

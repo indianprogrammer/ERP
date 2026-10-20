@@ -1,32 +1,40 @@
 App.registerView('sales', {
   async render(params) {
-    if (params.new) return await this.renderDocForm(params.new);
+    if (params.new) return await this.renderDocForm(params.new, params.cust, params.source);
     const tab = params.tab || 'docs';
-    const tabs = [['docs', '🧾 Document Billing Engine'], ['customers', '👥 Customers'], ['receivables', '💰 Receivables & Aging'], ['ledger', '📒 Ledger']];
+    const tabs = [['docs', '🧾 Document Billing Engine'], ['requirements', '📋 Requirements'], ['customers', '👥 Customers'], ['receivables', '💰 Receivables & Aging'], ['ledger', '📒 Ledger']];
     return `
-    <div class="page-head"><div><h1>Sales & Outward Billing</h1><div class="sub">Quotations · Tax Invoices · Challans · Credit/Debit Notes · E-Way bills</div></div>
+    <div class="page-head"><div><h1>Sales & Outward Billing</h1><div class="sub">Requirements · Quotations · Tax Invoices · Challans · Credit/Debit Notes · E-Way bills</div></div>
       <div class="flex" id="sales-actions"></div></div>
     <div class="tabs">${tabs.map(([k, l]) => `<button class="${tab === k ? 'active' : ''}" onclick="App.navigate('#/sales?tab=${k}')">${l}</button>`).join('')}</div>
     <div id="sales-body"><div class="empty">Loading…</div></div>`;
   },
   async mount(params) {
-    if (params.new) return await this.mountDocForm(params.new, params.from_lead);
+    if (params.new) return await this.mountDocForm(params.new, params.source);
     const tab = params.tab || 'docs';
     const body = document.getElementById('sales-body');
     const actions = document.getElementById('sales-actions');
     actions.innerHTML = '';
     if (tab === 'docs') {
       actions.innerHTML = `
+        <button class="btn btn-outline" id="btn-req">+ Requirements</button>
         <button class="btn btn-outline" id="btn-challan">+ Delivery Challan</button>
         <button class="btn btn-outline" id="btn-quote">+ Quotation</button>
         <button class="btn btn-outline" id="btn-invoice">+ Invoice</button>
         <button class="btn btn-primary" id="btn-taxinvoice">+ New Tax Invoice</button>`;
+      document.getElementById('btn-req').onclick = () => App.navigate('#/sales?new=Requirement');
       document.getElementById('btn-taxinvoice').onclick = () => App.navigate('#/sales?new=TaxInvoice');
       document.getElementById('btn-invoice').onclick = () => App.navigate('#/sales?new=Invoice');
       document.getElementById('btn-quote').onclick = () => App.navigate('#/sales?new=Quotation');
       document.getElementById('btn-challan').onclick = () => App.navigate('#/sales?new=DeliveryChallan');
       await this.renderDocs(body);
       if (params.id) { const d = (await UI.api('/api/salesdocs')).docs.find(x => x.doc_no === params.id); if (d) this.docDetail(d.id); }
+    }
+    if (tab === 'requirements') {
+      actions.innerHTML = '<button class="btn btn-primary" id="btn-reqnew">+ New Requirement</button>';
+      document.getElementById('btn-reqnew').onclick = () => App.navigate('#/sales?new=Requirement');
+      await this.renderRequirements(body);
+      if (params.id) this.reqDetail(Number(params.id));
     }
     if (tab === 'customers') {
       actions.innerHTML = '<button class="btn btn-primary" id="btn-cust">+ New Customer</button>';
@@ -39,13 +47,14 @@ App.registerView('sales', {
 
   async renderDocs(body) {
     const { docs } = await UI.api('/api/salesdocs');
+    const list = docs.filter(d => d.doc_type !== 'Requirement');
     body.innerHTML = `
       <div class="panel"><h2>Outward Document Billing Engine</h2>
       ${UI.table([
       { key: 'doc_no', label: 'Doc #' }, { key: 'doc_type', label: 'Type' }, 'customer_name',
       { key: 'grand_total', label: 'Amount', num: true }, 'gst_status',
       { key: 'carrier', label: 'Tracking' }, 'status', { key: '_a', label: '' }],
-      docs, {
+      list, {
         doc_no: v => `<b>${UI.esc(v)}</b>`, doc_type: v => UI.badge(v), grand_total: v => `<b>${UI.money(v)}</b>`,
         gst_status: v => UI.badge(v), status: v => UI.badge(v),
         carrier: (v, r) => r.eway_awb ? `<span class="chip">${UI.esc(v || '')} ${UI.esc(r.eway_awb)}</span>` : '—',
@@ -53,41 +62,114 @@ App.registerView('sales', {
       })}</div>`;
   },
 
-  async renderDocForm(doc_type) {
+  async renderRequirements(body) {
+    const { docs } = await UI.api('/api/salesdocs?type=Requirement');
+    body.innerHTML = `<div class="panel"><h2>Client Requirements</h2>
+      <div class="k-sub mb">Every inbound client request is captured here first — turn it into a Quotation, or forward it to vendors as an RFQ / Purchase Order.</div>
+      ${docs.length ? UI.table([
+      { key: 'doc_no', label: 'Req #' }, { key: 'customer_name', label: 'Client' },
+      { key: 'required_by', label: 'Required By' }, { key: 'grand_total', label: 'Est. Value', num: true },
+      { key: 'status', label: 'Status' }, { key: 'documents', label: 'Documents' }, { key: '_a', label: '' }
+    ], docs, {
+        doc_no: v => `<b>${UI.esc(v)}</b>`,
+        customer_name: v => UI.esc(v),
+        required_by: (v, r) => r.due_date ? UI.fmtDate(r.due_date) : '<span class="k-sub">—</span>',
+        grand_total: v => UI.money(v),
+        status: v => UI.badge(v),
+        documents: (v, r) => (r.links || []).length
+          ? (r.links || []).map(l => `<button class="link-btn" style="margin-right:8px" onclick="App.views.sales.openLink('${l.src}',${l.id})">${UI.esc(l.doc_no)}</button>`).join('')
+          : '<span class="k-sub">not quoted yet</span>',
+        _a: (v, r) => `<button class="btn btn-tonal btn-sm" onclick="App.views.sales.reqDetail(${r.id})">Open</button>`
+      }) : '<div class="empty">No requirements yet — click "+ New Requirement" to log a client request.</div>'}</div>`;
+  },
+
+  async openLink(src, id) {
+    if (src === 'po') { UI.closeModal(); App.navigate('#/procurement?tab=pos&po_id=' + id); }
+    else this.docDetail(id);
+  },
+
+  async reqDetail(id) {
+    const { doc, items, children } = await UI.api('/api/salesdocs/' + id);
+    const rows = children || [];
+    const b = UI.modal(`${doc.doc_no} — ${doc.customer_name}`, `
+      <div class="flex mb">${UI.badge(doc.doc_type)} ${UI.badge(doc.status)}
+        ${doc.due_date ? `<span class="chip">Required by ${UI.fmtDate(doc.due_date)}</span>` : ''}</div>
+      <div class="k-sub mb">GSTIN: ${UI.esc(doc.customer_gstin || 'URP')} · Place of Supply: ${UI.esc(doc.place_of_supply)} · Logged: ${UI.fmtDate(doc.doc_date)}</div>
+      <div class="table-wrap"><table class="data"><thead><tr><th>Product</th><th>HSN</th><th class="num">Qty</th><th class="num">Est. Rate</th><th class="num">Est. Amount</th></tr></thead>
+      <tbody>${items.map(i => `<tr><td>${UI.esc(i.description)}</td><td>${UI.esc(i.hsn_sac || '')}</td><td class="num">${i.qty}</td><td class="num">${UI.money(i.unit_price)}</td><td class="num">${UI.money(i.amount)}</td></tr>`).join('')}</tbody></table></div>
+      <div class="right mt"><b>Estimated value: ${UI.money(doc.grand_total)}</b></div>
+      ${doc.notes ? `<div class="k-sub mt">Scope: ${UI.esc(doc.notes)}</div>` : ''}
+      <h3>Raised Documents</h3>
+      ${rows.length ? rows.map(l => `<div class="flex" style="gap:10px;margin:6px 0">
+          ${UI.badge(l.doc_type === 'PurchaseOrder' ? 'PurchaseOrder' : l.doc_type)} <b>${UI.esc(l.doc_no)}</b>
+          <span class="k-sub">${UI.money(l.grand_total)}</span> ${UI.badge(l.status)}
+          <button class="link-btn" onclick="App.views.sales.openLink('${l.src}',${l.id})">Open</button></div>`).join('')
+        : '<div class="k-sub">Nothing raised from this requirement yet.</div>'}
+      <div class="pill-group mt">
+        <button class="btn btn-primary btn-sm" id="rq-quote">🧾 Create Quotation</button>
+        <button class="btn btn-outline btn-sm" id="rq-rfq">📊 Send to Vendors (RFQ)</button>
+        <button class="btn btn-outline btn-sm" id="rq-po">📦 Create Purchase Order</button>
+      </div>`,
+      `<button class="btn btn-outline" onclick="UI.closeModal()">Close</button>`);
+    b.querySelector('#rq-quote').onclick = () => { UI.closeModal(); App.navigate(`#/sales?new=Quotation&cust=${doc.customer_id}&source=${doc.id}`); };
+    b.querySelector('#rq-rfq').onclick = () => { UI.closeModal(); App.navigate(`#/procurement?tab=quotes&new=rfq&source=${doc.id}`); };
+    b.querySelector('#rq-po').onclick = () => { UI.closeModal(); App.navigate(`#/procurement?tab=pos&new=po&source=${doc.id}`); };
+  },
+
+  async renderDocForm(doc_type, custId, sourceId) {
+    this._source = null;
+    if (sourceId) {
+      const { doc: src, items } = await UI.api('/api/salesdocs/' + sourceId).catch(() => ({ doc: null, items: [] }));
+      if (src) this._source = { doc: src, items: items || [] };
+    }
     const [{ customers }, { items }, { warehouses }] = await Promise.all([
       UI.api('/api/customers'), UI.api('/api/items').catch(() => ({ items: [] })), UI.api('/api/warehouses').catch(() => ({ warehouses: [] }))
     ]);
-    const typeLabels = { Quotation: 'Quotation', Proforma: 'Proforma Invoice', TaxInvoice: 'GST Tax Invoice', Invoice: 'Invoice', DeliveryChallan: 'Delivery Receipt / Challan', CreditNote: 'Credit Note', DebitNote: 'Debit Note' };
+    const typeLabels = { Requirement: 'Client Requirement', Quotation: 'Quotation', Proforma: 'Proforma Invoice', TaxInvoice: 'GST Tax Invoice', Invoice: 'Invoice', DeliveryChallan: 'Delivery Receipt / Challan', CreditNote: 'Credit Note', DebitNote: 'Debit Note' };
     const label = typeLabels[doc_type] || doc_type;
+    const srcSub = this._source ? `From requirement ${this._source.doc.doc_no} — review & adjust before sending` : '';
+    const subByType = {
+      Requirement: 'Log what the client needs — products & quantities · convert to a quotation or a vendor purchase order later',
+      Quotation: 'Send to client · accept to record their purchase order'
+    };
     return `
     <div class="page-head">
-      <div><h1>New ${doc_type === 'TaxInvoice' ? 'Tax Invoice' : UI.esc(label)}</h1><div class="sub">${doc_type === 'Quotation' ? 'Send to client · accept to record their purchase order' : 'Enter line items; taxes and totals update live'}</div></div>
+      <div><h1>New ${doc_type === 'TaxInvoice' ? 'Tax Invoice' : UI.esc(label)}</h1><div class="sub">${srcSub || subByType[doc_type] || 'Enter line items; taxes and totals update live'}</div></div>
       <div class="flex">
         <button class="btn btn-outline" id="df-cancel">← Back to Sales</button>
-        <button class="btn btn-primary" id="dl-save">Generate ${doc_type === 'TaxInvoice' ? 'Tax Invoice' : (doc_type === 'Quotation' ? 'Quotation' : (doc_type === 'Invoice' ? 'Invoice' : 'Document'))}</button>
+        <button class="btn btn-primary" id="dl-save">Generate ${doc_type === 'TaxInvoice' ? 'Tax Invoice' : (UI.esc(label) || 'Document')}</button>
       </div></div>
     <div class="panel"><h2>Document Details</h2>
       <div class="form-grid" id="df">
-        ${UI.select('customer_id', 'Customer *', customers.map(c => ({ value: c.id, label: `${c.name} (${c.gstin || 'URP'})` })))}
+        ${UI.select('customer_id', 'Customer *', customers.map(c => ({ value: c.id, label: `${c.name} (${c.gstin || 'URP'})` })), custId)}
+        ${UI.field('new_customer', 'Or add new customer / company', '', 'text', 'placeholder="Type a new company name to create one"')}
         ${UI.select('warehouse_id', 'Dispatch Warehouse', warehouses.map(w => ({ value: w.id, label: w.name })), 1)}
         ${UI.field('place_of_supply', 'Place of Supply', 'Maharashtra (27)')}
-        ${UI.field('po_ref', 'Customer PO Ref')}
+        ${doc_type !== 'Requirement' ? UI.field('po_ref', 'Customer PO Ref') : ''}
         ${doc_type === 'Quotation' ? UI.field('due_date', 'Valid Until', '', 'date') : ''}
+        ${doc_type === 'Requirement' ? UI.field('due_date', 'Required By', '', 'date') : ''}
         ${doc_type === 'TaxInvoice' || doc_type === 'Invoice' || doc_type === 'DeliveryChallan' ? `
         ${UI.field('carrier', 'Carrier')}
         ${UI.field('eway_awb', 'E-Way Bill / AWB #')}
         ${UI.field('due_date', 'Payment Due Date', '', 'date')}` : ''}
-      </div></div>
+      </div>
+      ${doc_type === 'Requirement' || doc_type === 'Quotation'
+        ? UI.textarea('notes', doc_type === 'Requirement' ? 'Scope / what the client asked for' : 'Notes / Scope of Work', this._source?.doc?.notes || '')
+        : ''}
+      </div>
     <div class="panel"><h2>Line Items <button class="btn btn-outline btn-sm" id="dl-add">+ Add line</button></h2>
+      ${doc_type === 'Requirement' ? '<div class="k-sub mb">Add the products/quantities the client asked for. Pricing is added later on the quotation.</div>' : ''}
       <div id="dl-lines"></div></div>
-    <div class="panel" id="dl-totals" style="text-align:right"></div>`;
+    ${doc_type === 'Requirement' ? '' : '<div class="panel" id="dl-totals" style="text-align:right"></div>'}`;
   },
 
-  async mountDocForm(doc_type, fromLead) {
+  async mountDocForm(doc_type, sourceId) {
+    const isReq = doc_type === 'Requirement';
     const [{ items }] = await Promise.all([UI.api('/api/items').catch(() => ({ items: [] }))]);
     const lines = document.querySelector('#dl-lines');
     const totals = document.querySelector('#dl-totals');
     const recalc = () => {
+      if (isReq || !totals) return;
       let taxable = 0, tax = 0;
       const pos = document.querySelector('[name=place_of_supply]').value;
       const inter = !pos.startsWith('Maharashtra');
@@ -103,7 +185,11 @@ App.registerView('sales', {
     const addLine = (item) => {
       const div = document.createElement('div');
       div.className = 'form-grid card mb'; div.style.padding = '10px';
-      div.innerHTML = `
+      div.innerHTML = isReq ? `
+        ${UI.select('item_id', 'Item', [{ value: '', label: '— custom —' }, ...items.map(i => ({ value: i.id, label: `${i.sku} · ${i.name}` }))])}
+        ${UI.field('description', 'Description', item?.name || '')}
+        ${UI.field('qty', 'Qty', 1, 'number', 'step="any"')}
+        <div style="grid-column:1/-1"><button class="link-btn danger dl-rm">Remove</button></div>` : `
         ${UI.select('item_id', 'Item', [{ value: '', label: '— custom —' }, ...items.map(i => ({ value: i.id, label: `${i.sku} · ${i.name}` }))])}
         ${UI.field('description', 'Description', item?.name || '')}
         ${UI.field('hsn_sac', 'HSN/SAC', item?.hsn_sac || '')}
@@ -116,9 +202,11 @@ App.registerView('sales', {
         const it = items.find(i => String(i.id) === e.target.value);
         if (it) {
           div.querySelector('[name=description]').value = it.name;
-          div.querySelector('[name=hsn_sac]').value = it.hsn_sac;
-          div.querySelector('[name=unit_price]').value = doc_type === 'DeliveryChallan' ? it.purchase_price || it.sale_price : it.sale_price;
-          div.querySelector('[name=gst_rate]').value = it.gst_rate;
+          if (!isReq) {
+            div.querySelector('[name=hsn_sac]').value = it.hsn_sac;
+            div.querySelector('[name=unit_price]').value = doc_type === 'DeliveryChallan' ? it.purchase_price || it.sale_price : it.sale_price;
+            div.querySelector('[name=gst_rate]').value = it.gst_rate;
+          }
         }
         recalc();
       };
@@ -127,21 +215,52 @@ App.registerView('sales', {
       recalc();
     };
     addLine(items[0]);
+    if (this._source) {
+      // Requirements/quotes carry multiple products — clone one line per source line
+      const src = this._source.items;
+      const first = lines.firstElementChild;
+      if (src.length && first) {
+        const fill = (div, s) => {
+          div.querySelector('[name=item_id]').value = s.item_id || '';
+          div.querySelector('[name=description]').value = s.description || '';
+          div.querySelector('[name=qty]').value = s.qty || 1;
+          if (!isReq) {
+            div.querySelector('[name=hsn_sac]').value = s.hsn_sac || '';
+            div.querySelector('[name=unit_price]').value = s.unit_price || '';
+            div.querySelector('[name=gst_rate]').value = s.gst_rate ?? 18;
+          }
+        };
+        fill(first, src[0]);
+        for (let i = 1; i < src.length; i++) { addLine(); fill(lines.lastElementChild, src[i]); }
+        recalc();
+      }
+    }
     document.querySelector('#dl-add').onclick = () => addLine();
-    document.querySelector('#df-cancel').onclick = () => App.navigate('#/sales?tab=docs');
+    document.querySelector('#df-cancel').onclick = () => App.navigate(sourceId || doc_type === 'Requirement' ? '#/sales?tab=requirements' : '#/sales?tab=docs');
     document.querySelector('[name=place_of_supply]').addEventListener('input', recalc);
     recalc();
     document.querySelector('#dl-save').onclick = async () => {
       const head = UI.formValues('df');
+      head.notes = (document.querySelector('textarea[name=notes]')?.value || '').trim();
+      delete head.new_customer;
       const its = [...lines.querySelectorAll('.form-grid')].map(g => {
         const o = {}; g.querySelectorAll('[name]').forEach(el => o[el.name] = el.type === 'number' ? Number(el.value || 0) : el.value.trim());
         o.item_id = o.item_id ? Number(o.item_id) : null; return o;
       }).filter(i => i.description);
-      if (!head.customer_id || !its.length) return UI.toast('Customer and lines required', 'err');
+      if (!its.length) return UI.toast('Add at least one line item', 'err');
+      const newName = (document.querySelector('[name=new_customer]')?.value || '').trim();
       try {
-        const r = await UI.api('/api/salesdocs', { method: 'POST', body: { ...head, doc_type, items: its, from_lead: fromLead } });
+        if (newName) {
+          const { id: cid } = await UI.api('/api/customers', { method: 'POST', body: { name: newName } });
+          head.customer_id = cid;
+          UI.toast(`Customer "${newName}" created`, 'ok');
+        }
+        if (!head.customer_id) return UI.toast('Select or add a customer', 'err');
+        const body = { ...head, doc_type, items: its };
+        if (sourceId) body.source_doc_id = Number(sourceId);
+        const r = await UI.api('/api/salesdocs', { method: 'POST', body });
         UI.toast(`${r.doc_no} generated — total ${UI.money(r.grand_total)}${r.gst.inter ? ' (IGST)' : ' (CGST+SGST)'}`, 'ok');
-        App.navigate('#/sales?tab=docs');
+        App.navigate(doc_type === 'Requirement' || sourceId ? '#/sales?tab=requirements' : '#/sales?tab=docs');
       } catch (e) { UI.toast(e.message, 'err'); }
     };
   },
@@ -165,6 +284,10 @@ App.registerView('sales', {
         Paid: ${UI.money(doc.paid_amount)} · Balance: <b style="color:${bal > 0 ? 'var(--red)' : 'var(--green)'}">${UI.money(bal)}</b>
       </div>
       <div class="pill-group mt">
+        ${doc.doc_type === 'Requirement' ? `
+        <button class="btn btn-primary btn-sm" id="rq-quote">🧾 Create Quotation</button>
+        <button class="btn btn-outline btn-sm" id="rq-rfq">📊 Send to Vendors (RFQ)</button>
+        <button class="btn btn-outline btn-sm" id="rq-po">📦 Create Purchase Order</button>` : `
         <button class="btn btn-outline btn-sm" id="d-print">🖨 Print${doc.doc_type === 'Quotation' ? ' Quotation' : ' Invoice'}</button>
         ${doc.doc_type === 'Quotation' ? (doc.status === 'Accepted' ? `
         <button class="btn btn-primary btn-sm" id="q-project">📂 Create Project</button>` : `
@@ -179,13 +302,16 @@ App.registerView('sales', {
         <button class="btn btn-primary btn-sm" id="d-pay">Record Payment</button>` : ''}
         ${doc.doc_type === 'Quotation' ? '' : `
         <button class="btn btn-outline btn-sm" id="d-ship">Update Shipment</button>
-        <button class="btn btn-outline btn-sm" id="d-del">Mark Delivered</button>`}
+        <button class="btn btn-outline btn-sm" id="d-del">Mark Delivered</button>`}`}
       </div>`,
       `<button class="btn btn-outline" onclick="UI.closeModal()">Close</button>`);
     const dl = (url, name) => fetch(url, { headers: {} }).then(r => r.blob()).then(blob => {
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
     }).catch(e => UI.toast(e.message, 'err'));
-    b.querySelector('#d-print').onclick = () => App.views.settings.openInvoicePrint(doc, items);
+    b.querySelector('#rq-quote')?.addEventListener('click', () => { UI.closeModal(); App.navigate(`#/sales?new=Quotation&cust=${doc.customer_id}&source=${doc.id}`); });
+    b.querySelector('#rq-rfq')?.addEventListener('click', () => { UI.closeModal(); App.navigate(`#/procurement?tab=quotes&new=rfq&source=${doc.id}`); });
+    b.querySelector('#rq-po')?.addEventListener('click', () => { UI.closeModal(); App.navigate(`#/procurement?tab=pos&new=po&source=${doc.id}`); });
+    b.querySelector('#d-print')?.addEventListener('click', () => App.views.settings.openInvoicePrint(doc, items));
     b.querySelector('#q-send')?.addEventListener('click', () => this.setQuoteStatus(id, 'Sent'));
     b.querySelector('#q-reject')?.addEventListener('click', () => this.setQuoteStatus(id, 'Rejected'));
     b.querySelector('#q-accept')?.addEventListener('click', () => { UI.closeModal(); this.acceptForm(id); });

@@ -185,6 +185,7 @@ CREATE TABLE rfqs (
   due_date DATE NULL,
   created_by INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  source_doc_id INT NULL,          -- client Requirement this RFQ was raised from
   UNIQUE KEY uq_rfq_tenant (tenant_id, rfq_no),
   INDEX idx_rfq_tenant (tenant_id),
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
@@ -219,6 +220,7 @@ CREATE TABLE purchase_orders (
   quote_id INT NULL,
   project_id INT NULL,
   warehouse_id INT NULL,
+  source_doc_id INT NULL,          -- client Requirement this PO was raised from
   order_date DATE NOT NULL,
   expected_date DATE NULL,
   status VARCHAR(30) NOT NULL DEFAULT 'Ordered',
@@ -309,10 +311,11 @@ CREATE TABLE sales_documents (
   id INT AUTO_INCREMENT PRIMARY KEY,
   tenant_id INT NOT NULL,
   doc_no VARCHAR(30) NOT NULL,
-  doc_type VARCHAR(30) NOT NULL, -- Quotation, Proforma, TaxInvoice, Invoice, DeliveryChallan, CreditNote, DebitNote
+  doc_type VARCHAR(30) NOT NULL, -- Requirement, Quotation, Proforma, TaxInvoice, Invoice, DeliveryChallan, CreditNote, DebitNote
   customer_id INT NOT NULL,
   project_id INT NULL,
   warehouse_id INT NULL,
+  source_doc_id INT NULL,          -- parent document (e.g. Quotation/PO raised from a Requirement)
   doc_date DATE NOT NULL,
   place_of_supply VARCHAR(80) DEFAULT '',
   po_ref VARCHAR(60) DEFAULT '',
@@ -363,6 +366,7 @@ CREATE TABLE expenses (
   amount DECIMAL(14,2) NOT NULL DEFAULT 0,
   expense_date DATE NOT NULL,
   notes VARCHAR(300) DEFAULT '',
+  attachment VARCHAR(255) DEFAULT NULL,  -- uploaded voucher / invoice file (data/uploads/expenses)
   created_by INT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_exp_tenant (tenant_id),
@@ -574,3 +578,6 @@ ALTER TABLE expenses ADD FOREIGN KEY (project_id) REFERENCES projects(id);
 ALTER TABLE expenses ADD FOREIGN KEY (vendor_id) REFERENCES vendors(id);
 ALTER TABLE receipts ADD FOREIGN KEY (customer_id) REFERENCES customers(id);
 ALTER TABLE receipts ADD FOREIGN KEY (doc_id) REFERENCES sales_documents(id);
+ALTER TABLE sales_documents ADD FOREIGN KEY (source_doc_id) REFERENCES sales_documents(id);
+ALTER TABLE rfqs ADD FOREIGN KEY (source_doc_id) REFERENCES sales_documents(id);
+ALTER TABLE purchase_orders ADD FOREIGN KEY (source_doc_id) REFERENCES sales_documents(id);

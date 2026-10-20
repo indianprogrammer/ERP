@@ -6,7 +6,7 @@ const router = express.Router();
 
 const SELLER = { name: 'X3M Systems Pvt Ltd', gstin: '27AAAAA0000A1Z5', pan: 'AAAAA0000A', address: 'BKC, Mumbai 400051', state_code: '27' };
 const OUR_STATE = '27';
-const PREFIX = { Quotation: 'QTN', Proforma: 'PI', TaxInvoice: 'INV', Invoice: 'BILL', DeliveryChallan: 'CH', CreditNote: 'CN', DebitNote: 'DN' };
+const PREFIX = { Requirement: 'REQ', Quotation: 'QTN', Proforma: 'PI', TaxInvoice: 'INV', Invoice: 'BILL', DeliveryChallan: 'CH', CreditNote: 'CN', DebitNote: 'DN' };
 const tid = (req) => req.tenantId;
 
 async function nextDocNo(doc_type, req) {
@@ -38,6 +38,22 @@ router.get('/', requireModule('sales'), async (req, res) => {
       DATEDIFF(CURDATE(), d.due_date) overdue_days
      FROM sales_documents d JOIN customers c ON c.id=d.customer_id AND c.tenant_id=? WHERE ${where}
      ORDER BY d.id DESC LIMIT 100`, [tid(req), ...p]);
+  if (req.query.type === 'Requirement') {
+    // Requirements carry their downstream documents (quotation + POs) so the list can show progress
+    const [links] = await pool.query(
+      `SELECT 'sales' src, id, doc_no, doc_type, COALESCE(source_doc_id,0) req_id, grand_total, status
+         FROM sales_documents WHERE tenant_id=? AND source_doc_id IS NOT NULL
+       UNION ALL
+       SELECT 'po' src, id, po_no doc_no, 'PurchaseOrder' doc_type, COALESCE(source_doc_id,0) req_id, grand_total, status
+         FROM purchase_orders WHERE tenant_id=? AND source_doc_id IS NOT NULL
+       UNION ALL
+       SELECT 'rfq' src, id, rfq_no doc_no, 'RFQ' doc_type, COALESCE(source_doc_id,0) req_id, NULL grand_total, status
+         FROM rfqs WHERE tenant_id=? AND source_doc_id IS NOT NULL`,
+      [tid(req), tid(req), tid(req)]);
+    const byReq = {};
+    for (const l of links) { (byReq[l.req_id] = byReq[l.req_id] || []).push(l); }
+    for (const r of rows) r.links = byReq[r.id] || [];
+  }
   res.json({ docs: rows });
 });
 
@@ -116,11 +132,22 @@ router.get('/:id', requireModule('sales'), async (req, res) => {
   if (!doc) return res.status(404).json({ error: 'Document not found' });
   const [items] = await pool.query('SELECT * FROM sales_doc_items WHERE doc_id=? AND tenant_id=?', [req.params.id, tid(req)]);
   const [receipts] = await pool.query('SELECT * FROM receipts WHERE doc_id=? AND tenant_id=? ORDER BY id', [req.params.id, tid(req)]);
-  res.json({ doc, items, receipts });
+  // Documents raised from this one (quotations / POs) — used by the requirement view
+  const [children] = await pool.query(
+    `SELECT 'sales' src, id, doc_no, doc_type, grand_total, status FROM sales_documents
+       WHERE tenant_id=? AND source_doc_id=?
+     UNION ALL
+     SELECT 'po' src, id, po_no doc_no, 'PurchaseOrder' doc_type, grand_total, status FROM purchase_orders
+       WHERE tenant_id=? AND source_doc_id=?
+     UNION ALL
+     SELECT 'rfq' src, id, rfq_no doc_no, 'RFQ' doc_type, NULL grand_total, status FROM rfqs
+       WHERE tenant_id=? AND source_doc_id=?`,
+    [tid(req), req.params.id, tid(req), req.params.id, tid(req), req.params.id]);
+  res.json({ doc, items, receipts, children });
 });
 
 router.post('/', requireModule('sales', 'can_create'), async (req, res) => {
-  const { doc_type, customer_id, project_id, warehouse_id, place_of_supply, po_ref, carrier, eway_awb, due_date, notes, items = [], from_lead } = req.body;
+  const { doc_type, customer_id, project_id, warehouse_id, place_of_supply, po_ref, carrier, eway_awb, due_date, notes, items = [], from_lead, source_doc_id } = req.body;
   if (!doc_type || !customer_id) return res.status(400).json({ error: 'Document type and customer required' });
   if (!items.length) return res.status(400).json({ error: 'Add at least one line item' });
   const [[cust]] = await pool.query('SELECT * FROM customers WHERE id=? AND tenant_id=?', [customer_id, tid(req)]);
@@ -130,10 +157,10 @@ router.post('/', requireModule('sales', 'can_create'), async (req, res) => {
   const isCredit = doc_type === 'CreditNote';
   const sign = isCredit ? -1 : 1;
   const [r] = await pool.query(
-    `INSERT INTO sales_documents (tenant_id,doc_no,doc_type,customer_id,project_id,warehouse_id,doc_date,place_of_supply,po_ref,carrier,eway_awb,status,gst_status,taxable_value,cgst,sgst,igst,grand_total,due_date,notes,created_by)
-     VALUES (?,?,?,?, ?, ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [tid(req), doc_no, doc_type, customer_id, project_id || null, warehouse_id || null, pos, po_ref || '', carrier || '', eway_awb || '',
-      doc_type === 'Quotation' ? 'Draft' : (doc_type === 'TaxInvoice' ? 'Issued' : (doc_type === 'DeliveryChallan' ? 'Dispatched' : 'Issued')),
+    `INSERT INTO sales_documents (tenant_id,doc_no,doc_type,customer_id,project_id,warehouse_id,source_doc_id,doc_date,place_of_supply,po_ref,carrier,eway_awb,status,gst_status,taxable_value,cgst,sgst,igst,grand_total,due_date,notes,created_by)
+     VALUES (?,?,?,?, ?, ?, ?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [tid(req), doc_no, doc_type, customer_id, project_id || null, warehouse_id || null, source_doc_id || null, pos, po_ref || '', carrier || '', eway_awb || '',
+      doc_type === 'Requirement' ? 'Open' : (doc_type === 'Quotation' ? 'Draft' : (doc_type === 'TaxInvoice' ? 'Issued' : (doc_type === 'DeliveryChallan' ? 'Dispatched' : 'Issued'))),
       doc_type === 'TaxInvoice' ? 'Pending GSTR-1' : 'N/A',
       sign * g.taxable, sign * g.cgst, sign * g.sgst, sign * g.igst, sign * g.grand,
       due_date || null, notes || '', authUser(req).id]);
@@ -149,7 +176,21 @@ router.post('/', requireModule('sales', 'can_create'), async (req, res) => {
         [tid(req), r.insertId, carrier || '', eway_awb || '']);
     }
   }
-  if (from_lead) await pool.query('UPDATE leads SET converted_doc_id=? WHERE id=? AND tenant_id=?', [r.insertId, from_lead, tid(req)]);
+  if (from_lead) {
+    await pool.query('UPDATE leads SET converted_doc_id=? WHERE id=? AND tenant_id=?', [r.insertId, from_lead, tid(req)]);
+    // A quotation raised against a requirement moves it to "Proposal Sent" on the CRM board
+    if (doc_type === 'Quotation') {
+      const [[ps]] = await pool.query("SELECT id FROM lead_stages WHERE tenant_id=? AND name='Proposal Sent' LIMIT 1", [tid(req)]);
+      if (ps) await pool.query('UPDATE leads SET stage_id=? WHERE id=? AND tenant_id=?', [ps.id, from_lead, tid(req)]);
+    }
+  }
+  if (source_doc_id) {
+    // Link back to the source requirement + reflect it on the requirement's own status
+    const [rows] = await pool.query('SELECT doc_type FROM sales_documents WHERE id=? AND tenant_id=?', [source_doc_id, tid(req)]);
+    if (rows[0]?.doc_type === 'Requirement' && (doc_type === 'Quotation' || doc_type === 'Proforma')) {
+      await pool.query("UPDATE sales_documents SET status='Quoted' WHERE id=? AND tenant_id=?", [source_doc_id, tid(req)]);
+    }
+  }
   await logAudit(req, 'CREATE', `sales_${doc_type}`, doc_no);
   res.json({ id: r.insertId, doc_no, grand_total: g.grand, gst: { cgst: g.cgst, sgst: g.sgst, igst: g.igst, inter: g.isInterState } });
 });

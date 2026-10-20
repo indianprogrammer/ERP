@@ -4,8 +4,8 @@ const router = express.Router();
 
 const tid = (req) => req.tenantId;
 
-const nextNo = async (table, col, prefix) => {
-  const [[{ c }]] = await pool.query(`SELECT COUNT(*) c FROM ${table} WHERE tenant_id=?`, [tid(req)]);
+const nextNo = async (table, col, prefix, tenantId) => {
+  const [[{ c }]] = await pool.query(`SELECT COUNT(*) c FROM ${table} WHERE tenant_id=?`, [tenantId]);
   return `${prefix}-${new Date().getFullYear()}-${String(c + 1).padStart(3, '0')}`;
 };
 
@@ -38,11 +38,11 @@ router.get('/:id/matrix', requireModule('procurement'), async (req, res) => {
 });
 
 router.post('/', requireModule('procurement', 'can_create'), async (req, res) => {
-  const { title, due_date, project_id, quotes = [] } = req.body;
+  const { title, due_date, project_id, quotes = [], source_doc_id } = req.body;
   if (!title) return res.status(400).json({ error: 'Title required' });
-  const rfq_no = await nextNo('rfqs', 'rfq_no', 'RFQ');
-  const [r] = await pool.query('INSERT INTO rfqs (tenant_id,rfq_no,title,project_id,status,due_date,created_by) VALUES (?,?,?,?,\'Open\',?,?)',
-    [tid(req), rfq_no, title, project_id || null, due_date || null, authUser(req).id]);
+  const rfq_no = await nextNo('rfqs', 'rfq_no', 'RFQ', tid(req));
+  const [r] = await pool.query('INSERT INTO rfqs (tenant_id,rfq_no,title,project_id,status,due_date,created_by,source_doc_id) VALUES (?,?,?,?,\'Open\',?,?,?)',
+    [tid(req), rfq_no, title, project_id || null, due_date || null, authUser(req).id, source_doc_id || null]);
   for (const q of quotes) {
     if (!q.vendor_id || !q.item_desc) continue;
     await pool.query('INSERT INTO vendor_quotes (tenant_id,rfq_id,vendor_id,item_desc,qty,unit_price,gst_rate,lead_time_days,payment_terms,notes) VALUES (?,?,?,?,?,?,?,?,?,?)',
@@ -62,7 +62,7 @@ router.post('/:id/convert', requireModule('procurement', 'can_approve'), async (
   const vendorId = quotes[0].vendor_id;
   if (quotes.some(q => q.vendor_id !== vendorId)) return res.status(400).json({ error: 'Select quotes from a single vendor only' });
   const [[rfq]] = await pool.query('SELECT * FROM rfqs WHERE id=? AND tenant_id=?', [req.params.id, tid(req)]);
-  const po_no = await nextNo('purchase_orders', 'po_no', 'PO');
+  const po_no = await nextNo('purchase_orders', 'po_no', 'PO', tid(req));
   let subtotal = 0, tax_total = 0;
   for (const q of quotes) {
     const amt = q.qty * q.unit_price;

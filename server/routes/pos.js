@@ -27,7 +27,7 @@ router.get('/:id', requireModule('procurement'), async (req, res) => {
 });
 
 router.post('/', requireModule('procurement', 'can_create'), async (req, res) => {
-  const { vendor_id, project_id, warehouse_id, expected_date, notes, items = [] } = req.body;
+  const { vendor_id, project_id, warehouse_id, expected_date, notes, items = [], source_doc_id } = req.body;
   if (!vendor_id) return res.status(400).json({ error: 'Vendor required' });
   if (!items.length) return res.status(400).json({ error: 'Add at least one line item' });
   const [[{ c }]] = await pool.query('SELECT COUNT(*) c FROM purchase_orders WHERE tenant_id=?', [tid(req)]);
@@ -35,15 +35,19 @@ router.post('/', requireModule('procurement', 'can_create'), async (req, res) =>
   let subtotal = 0, tax_total = 0;
   for (const it of items) { const a = (it.qty || 0) * (it.unit_price || 0); subtotal += a; tax_total += a * (it.gst_rate ?? 18) / 100; }
   const [r] = await pool.query(
-    `INSERT INTO purchase_orders (tenant_id,po_no,vendor_id,project_id,warehouse_id,order_date,expected_date,status,subtotal,tax_total,grand_total,notes,created_by)
-     VALUES (?,?,?,?,?,CURDATE(),?,'Ordered',?,?,?,?,?)`,
-    [tid(req), po_no, vendor_id, project_id || null, warehouse_id || null, expected_date || null, subtotal, tax_total, subtotal + tax_total, notes || '', authUser(req).id]);
+    `INSERT INTO purchase_orders (tenant_id,po_no,vendor_id,project_id,warehouse_id,source_doc_id,order_date,expected_date,status,subtotal,tax_total,grand_total,notes,created_by)
+     VALUES (?,?,?,?,?,?,CURDATE(),?,'Ordered',?,?,?,?,?)`,
+    [tid(req), po_no, vendor_id, project_id || null, warehouse_id || null, source_doc_id || null, expected_date || null, subtotal, tax_total, subtotal + tax_total, notes || '', authUser(req).id]);
   for (const it of items) {
     await pool.query('INSERT INTO po_items (tenant_id,po_id,item_id,description,hsn_sac,qty,unit_price,gst_rate,amount) VALUES (?,?,?,?,?,?,?,?,?)',
       [tid(req), r.insertId, it.item_id || null, it.description || '', it.hsn_sac || '', it.qty || 1, it.unit_price || 0, it.gst_rate ?? 18, (it.qty || 0) * (it.unit_price || 0)]);
   }
   await pool.query('INSERT INTO shipments (tenant_id,po_id,status) VALUES (?,?,\'Ordered\')', [tid(req), r.insertId]);
   if (project_id) await pool.query('INSERT IGNORE INTO project_links (tenant_id,project_id,ref_type,ref_id,amount) VALUES (?,?,\'PO\',?,?)', [tid(req), project_id, r.insertId, subtotal + tax_total]);
+  if (source_doc_id) {
+    const [[src]] = await pool.query("SELECT id FROM sales_documents WHERE id=? AND tenant_id=? AND doc_type='Requirement'", [source_doc_id, tid(req)]);
+    if (src) await pool.query("UPDATE sales_documents SET status='PO Raised' WHERE id=? AND tenant_id=?", [source_doc_id, tid(req)]);
+  }
   await logAudit(req, 'CREATE', 'purchase_order', po_no);
   res.json({ id: r.insertId, po_no });
 });

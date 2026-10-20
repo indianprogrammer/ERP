@@ -1,8 +1,15 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const { pool, logAudit, requireModule, authUser } = require('../lib/middleware');
 const router = express.Router();
 
 const tid = (req) => req.tenantId;
+const UPLOAD_DIR = path.join(__dirname, '..', '..', 'data', 'uploads', 'expenses');
+const ALLOWED_EXT = ['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.doc', '.docx', '.xls', '.xlsx', '.csv', '.txt'];
+const TYPES = { '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.txt': 'text/plain' };
+
+function safeName(s) { return String(s || '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80); }
 
 // GET /api/expenses?project_id=&type=project|individual&month=YYYY-MM&q=
 // Expenses are either project-based (project_id set) or individual (project_id NULL).
@@ -35,7 +42,7 @@ router.get('/', requireModule('projects'), async (req, res) => {
 
 // POST /api/expenses — project-based when project_id provided, individual otherwise
 router.post('/', requireModule('projects', 'can_create'), async (req, res) => {
-  const { project_id, vendor_id, title, category, amount, expense_date, notes } = req.body;
+  const { project_id, vendor_id, title, category, amount, expense_date, notes, attachment } = req.body;
   if (!title || !amount) return res.status(400).json({ error: 'Title and amount required' });
   if (Number(amount) <= 0) return res.status(400).json({ error: 'Amount must be greater than 0' });
   let pid = project_id ? Number(project_id) : null;
@@ -44,10 +51,87 @@ router.post('/', requireModule('projects', 'can_create'), async (req, res) => {
     if (!pr) return res.status(400).json({ error: 'Project not found' });
   }
   const [r] = await pool.query(
-    'INSERT INTO expenses (tenant_id,project_id,vendor_id,title,category,amount,expense_date,notes,created_by) VALUES (?,?,?,?,?,?,?,?,?)',
-    [tid(req), pid, vendor_id || null, title, category || 'General', amount, expense_date || null, notes || '', authUser(req).id]);
+    'INSERT INTO expenses (tenant_id,project_id,vendor_id,title,category,amount,expense_date,notes,attachment,created_by) VALUES (?,?,?,?,?,?,?,?,?,?)',
+    [tid(req), pid, vendor_id || null, title, category || 'General', amount, expense_date || new Date().toISOString().slice(0, 10), notes || '', attachment || null, authUser(req).id]);
   await logAudit(req, 'CREATE', 'expense', `${title} (${pid ? 'project' : 'individual'}) ₹${amount}`);
   res.json({ id: r.insertId });
+});
+
+// POST /api/expenses/upload — multipart voucher/invoice upload (returns stored filename)
+router.post('/upload', requireModule('projects', 'can_create'), async (req, res) => {
+  try {
+    if (typeof req.headers['content-type'] !== 'string' || !req.headers['content-type'].includes('multipart/form-data')) {
+      return res.status(415).json({ error: 'Expected a multipart/form-data upload' });
+    }
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > 10 * 1024 * 1024) return res.status(413).json({ error: 'File too large (max 10 MB)' });
+      chunks.push(chunk);
+    }
+    const raw = Buffer.concat(chunks);
+    const ct = req.headers['content-type'];
+    const bm = /boundary="?([^";]+)"?/i.exec(ct);
+    if (!bm) return res.status(400).json({ error: 'Malformed upload' });
+    const boundary = Buffer.from('--' + bm[1]);
+    let pos = raw.indexOf(boundary);
+    if (pos < 0) return res.status(400).json({ error: 'Malformed upload' });
+    pos += boundary.length;
+    // skip CRLF after boundary
+    while (pos < raw.length && (raw[pos] === 13 || raw[pos] === 10)) pos++;
+    const headEnd = raw.indexOf('\r\n\r\n', pos);
+    if (headEnd < 0) return res.status(400).json({ error: 'Malformed upload' });
+    const headers = raw.slice(pos, headEnd).toString('latin1');
+    const dataStart = headEnd + 4;
+    const nextBoundary = raw.indexOf(boundary, dataStart);
+    if (nextBoundary < 0) return res.status(400).json({ error: 'Malformed upload' });
+    let dataEnd = nextBoundary;
+    if (raw[dataEnd - 2] === 13 && raw[dataEnd - 1] === 10) dataEnd -= 2;
+    const data = raw.slice(dataStart, dataEnd);
+    if (!data.length) return res.status(400).json({ error: 'Empty file' });
+    const fn = /filename="([^"]*)"/i.exec(headers);
+    const ext = path.extname(fn ? fn[1] : '').toLowerCase() || '.bin';
+    if (!ALLOWED_EXT.includes(ext)) return res.status(400).json({ error: 'Unsupported file type ' + ext });
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    const stored = `${tid(req)}_${Date.now()}_${safeName(fn ? fn[1] : 'file' + ext)}`;
+    fs.writeFileSync(path.join(UPLOAD_DIR, stored), data);
+    await logAudit(req, 'UPLOAD', 'expense_attachment', `${stored} (${data.length}b)`);
+    res.json({ attachment: stored, name: fn ? fn[1] : stored, size: data.length });
+  } catch (e) {
+    res.status(500).json({ error: 'Upload failed: ' + e.message });
+  }
+});
+
+function attachmentRow(req, id) {
+  return pool.query('SELECT title, attachment FROM expenses WHERE id=? AND tenant_id=?', [id, tid(req)]).then(([rows]) => rows[0]);
+}
+
+// GET /api/expenses/:id/attachment — stream the uploaded voucher / invoice
+router.get('/:id/attachment', requireModule('projects'), async (req, res) => {
+  const e = await attachmentRow(req, req.params.id);
+  if (!e) return res.status(404).json({ error: 'Expense not found' });
+  if (!e.attachment) return res.status(404).json({ error: 'No document attached' });
+  const file = path.join(UPLOAD_DIR, path.basename(e.attachment));
+  if (!fs.existsSync(file)) return res.status(404).json({ error: 'File missing on server' });
+  const ext = path.extname(file).toLowerCase();
+  const inline = ['image/', 'application/pdf', 'text/'].some(t => (TYPES[ext] || '').startsWith(t));
+  res.setHeader('Content-Type', TYPES[ext] || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${safeName(e.attachment)}"`);
+  fs.createReadStream(file).pipe(res);
+});
+
+// DELETE /api/expenses/:id/attachment
+router.delete('/:id/attachment', requireModule('projects', 'can_delete'), async (req, res) => {
+  const e = await attachmentRow(req, req.params.id);
+  if (!e) return res.status(404).json({ error: 'Expense not found' });
+  if (e.attachment) {
+    const file = path.join(UPLOAD_DIR, path.basename(e.attachment));
+    try { fs.unlinkSync(file); } catch { }
+    await pool.query('UPDATE expenses SET attachment=NULL WHERE id=? AND tenant_id=?', [req.params.id, tid(req)]);
+    await logAudit(req, 'DELETE_ATTACHMENT', 'expense', e.attachment);
+  }
+  res.json({ ok: true });
 });
 
 // DELETE /api/expenses/:id
