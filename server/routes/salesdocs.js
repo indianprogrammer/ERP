@@ -195,6 +195,34 @@ router.post('/', requireModule('sales', 'can_create'), async (req, res) => {
   res.json({ id: r.insertId, doc_no, grand_total: g.grand, gst: { cgst: g.cgst, sgst: g.sgst, igst: g.igst, inter: g.isInterState } });
 });
 
+router.put('/:id', requireModule('sales', 'can_update'), async (req, res) => {
+  const { customer_id, warehouse_id, place_of_supply, po_ref, due_date, notes, items = [] } = req.body;
+  const [[doc]] = await pool.query('SELECT * FROM sales_documents WHERE id=? AND tenant_id=? AND doc_type=\'Quotation\'', [req.params.id, tid(req)]);
+  if (!doc) return res.status(404).json({ error: 'Quotation not found' });
+  if (!['Draft', 'Sent'].includes(doc.status)) return res.status(400).json({ error: 'Only Draft or Sent quotations can be edited' });
+  if (!items.length) return res.status(400).json({ error: 'Add at least one line item' });
+  let pos = place_of_supply || doc.place_of_supply;
+  let cid = customer_id || doc.customer_id;
+  if (customer_id && customer_id !== doc.customer_id) {
+    const [[cust]] = await pool.query('SELECT * FROM customers WHERE id=? AND tenant_id=?', [customer_id, tid(req)]);
+    if (!cust) return res.status(400).json({ error: 'Customer not found' });
+    if (!place_of_supply) pos = cust.place_of_supply || pos;
+  }
+  const g = computeGst(items, pos);
+  await pool.query(
+    `UPDATE sales_documents SET customer_id=?, warehouse_id=?, place_of_supply=?, po_ref=?, due_date=?, notes=?,
+       taxable_value=?, cgst=?, sgst=?, igst=?, grand_total=? WHERE id=? AND tenant_id=?`,
+    [cid, warehouse_id || doc.warehouse_id, pos, po_ref ?? doc.po_ref, due_date || null, notes ?? doc.notes,
+      g.taxable, g.cgst, g.sgst, g.igst, g.grand, doc.id, tid(req)]);
+  await pool.query('DELETE FROM sales_doc_items WHERE doc_id=? AND tenant_id=?', [doc.id, tid(req)]);
+  for (const ln of g.lines) {
+    await pool.query('INSERT INTO sales_doc_items (tenant_id,doc_id,item_id,description,hsn_sac,qty,unit_price,gst_rate,amount) VALUES (?,?,?,?,?,?,?,?,?)',
+      [tid(req), doc.id, ln.item_id || null, ln.description || '', ln.hsn_sac || '', ln.qty || 1, ln.unit_price || 0, ln.gst_rate ?? 18, ln.amount]);
+  }
+  await logAudit(req, 'UPDATE', 'sales_Quotation', doc.doc_no);
+  res.json({ id: doc.id, doc_no: doc.doc_no, grand_total: g.grand, gst: { cgst: g.cgst, sgst: g.sgst, igst: g.igst, inter: g.isInterState } });
+});
+
 router.get('/:id/eway-json', requireModule('sales', 'can_export'), async (req, res) => {
   const [[doc]] = await pool.query(
     `SELECT d.*, c.name customer_name, c.gstin customer_gstin, c.address customer_address, c.state_code customer_state

@@ -116,7 +116,7 @@ App.registerView('settings', {
     const tab = params.tab || 'company';
     const tabs = [
       ['company', '🏢 Company Profile'], ['invoice', '🧾 Invoice Theme'], ['receipt', '🧾 Receipt Theme'],
-      ['terms', '📜 Terms & Conditions'], ['payments', '🏦 Bank / UPI / QR'], ['stages', '🎯 Lead Stages']
+      ['terms', '📜 Terms & Conditions'], ['payments', '🏦 Bank / UPI / QR'], ['stages', '🎯 Lead Stages'], ['hsn', '📐 HSN / SAC Master']
     ];
     return `
     <div class="page-head"><div><h1>Company Settings</h1><div class="sub">Profile · GST details · invoice &amp; receipt themes · terms · payment details · lead stages</div></div>
@@ -139,6 +139,7 @@ App.registerView('settings', {
     if (tab === 'terms') this.renderTerms(body, actions, s);
     if (tab === 'payments') this.renderPayments(body, actions, s);
     if (tab === 'stages') await this.renderStages(body, actions, s);
+    if (tab === 'hsn') await this.renderHsn(body, actions);
   },
   async save(fields) {
     try {
@@ -171,6 +172,89 @@ App.registerView('settings', {
       if (d.company_gstin && !/^[0-9A-Za-z]{15}$/.test(d.company_gstin)) return UI.toast('GSTIN must be 15 characters', 'err');
       if (await this.save(d)) this.mount({ tab: 'company' });
     };
+  },
+
+  // ---------- HSN / SAC master ----------
+  async renderHsn(body, actions) {
+    this._hsn = { q: '', type: '', rate: '', page: 1, limit: 50, total: 0, rates: [] };
+    body.innerHTML = `
+      <div class="panel">
+        <h2>HSN / SAC Code Master <span class="k-sub" id="hsn-count"></span></h2>
+        <div class="k-sub mb">Official Indian classifications with applicable GST rates (IGST; intra-state split = CGST = SGST = half). Seeded from the public CBIC-derived dataset — reference only, verify rates against current notifications before filing.</div>
+        <div class="odo-searchbar">
+          <input type="search" id="hsn-q" placeholder="Search code (prefix) or description…" style="max-width:420px">
+          <span class="k-sub">Type:</span>
+          <span class="odo-chip on" data-t="">All</span>
+          <span class="odo-chip" data-t="HSN">HSN · goods</span>
+          <span class="odo-chip" data-t="SAC">SAC · services</span>
+          <span class="k-sub">GST:</span>
+          <span id="hsn-rates" class="flex" style="gap:6px"><span class="k-sub">loading…</span></span>
+          <button class="link-btn" id="hsn-clear">Clear</button>
+        </div>
+        <div id="hsn-out"><div class="empty">Loading…</div></div>
+        <div class="center mt" id="hsn-more" style="text-align:center"></div>
+      </div>`;
+    const out = document.getElementById('hsn-out');
+    const more = document.getElementById('hsn-more');
+    const st = this._hsn;
+    const load = async (append = false) => {
+      if (!append) { st.page = 1; out.innerHTML = '<div class="empty">Loading…</div>'; more.innerHTML = ''; }
+      const params = new URLSearchParams({ q: st.q, type: st.type, rate: st.rate, limit: st.limit, page: st.page });
+      try {
+        const r = await UI.api('/api/hsn?' + params);
+        st.total = r.total;
+        document.getElementById('hsn-count').textContent = `${r.total.toLocaleString('en-IN')} codes`;
+        if (!st.rates.length && r.rates.length) {
+          document.getElementById('hsn-rates').innerHTML =
+            `<span class="odo-chip on" data-r="">Any</span>` +
+            r.rates.map(x => `<span class="odo-chip" data-r="${x}">${x}%</span>`).join('');
+          document.querySelectorAll('#hsn-rates .odo-chip').forEach(c => c.onclick = () => {
+            st.rate = c.dataset.r;
+            document.querySelectorAll('#hsn-rates .odo-chip').forEach(x => x.classList.toggle('on', x === c));
+            load();
+          });
+        }
+        const rowHtml = x => `<tr>
+          <td><b>${UI.esc(x.code)}</b></td>
+          <td>${UI.esc(x.description)}</td>
+          <td>${x.type === 'SAC' ? '<span class="chip">SAC · service</span>' : '<span class="chip">HSN · goods</span>'}</td>
+          <td class="num"><b>${Number(x.gst_rate)}%</b></td>
+          <td class="num">${Number(x.gst_rate) / 2}%</td>
+          <td class="num">${Number(x.gst_rate) / 2}%</td></tr>`;
+        const table = !r.rows.length ? '<div class="empty">No matching HSN/SAC codes</div>'
+          : `<div class="table-wrap"><table class="data">
+              <thead><tr><th>Code</th><th>Description</th><th>Type</th><th class="num">GST %</th><th class="num">CGST %</th><th class="num">SGST %</th></tr></thead>
+              <tbody>${r.rows.map(rowHtml).join('')}</tbody></table></div>`;
+        if (append) {
+          const tbody = out.querySelector('tbody');
+          if (tbody && r.rows.length) tbody.insertAdjacentHTML('beforeend', r.rows.map(rowHtml).join(''));
+          else if (r.rows.length) out.innerHTML = table;
+        } else out.innerHTML = table;
+        const shown = st.page * st.limit;
+        more.innerHTML = shown < r.total
+          ? `<button class="btn btn-outline" id="hsn-next">Load more (${Math.min(r.total - shown, st.limit)} of ${(r.total - shown).toLocaleString('en-IN')} remaining)</button>`
+          : (r.total ? `<span class="k-sub">All ${r.total.toLocaleString('en-IN')} codes shown</span>` : '');
+        document.getElementById('hsn-next')?.addEventListener('click', () => { st.page++; load(true); });
+      } catch (e) { out.innerHTML = `<div class="form-error">${UI.esc(e.message)}</div>`; }
+    };
+    let dt;
+    document.getElementById('hsn-q').addEventListener('input', e => {
+      clearTimeout(dt);
+      dt = setTimeout(() => { st.q = e.target.value.trim(); load(); }, 250);
+    });
+    body.querySelectorAll('.odo-chip[data-t]').forEach(c => c.onclick = () => {
+      st.type = c.dataset.t;
+      body.querySelectorAll('.odo-chip[data-t]').forEach(x => x.classList.toggle('on', x === c));
+      load();
+    });
+    document.getElementById('hsn-clear').onclick = () => {
+      st.q = ''; st.type = ''; st.rate = '';
+      document.getElementById('hsn-q').value = '';
+      body.querySelectorAll('.odo-chip[data-t]').forEach(x => x.classList.toggle('on', x.dataset.t === ''));
+      document.querySelectorAll('#hsn-rates .odo-chip').forEach(x => x.classList.toggle('on', x.dataset.r === ''));
+      load();
+    };
+    await load();
   },
 
   themeSwatchStyle(t) {

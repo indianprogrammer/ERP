@@ -9,6 +9,7 @@
     "ctl": "bash scripts/erpctl.sh",
     "dbinit": "bash scripts/init-db.sh",
     "mcp": "node mcp/stdio.js",
+    "seed-hsn": "node scripts/seed-hsn.js",
     "screenshots": "node scripts/screenshots.js"
   },
   "keywords": [],

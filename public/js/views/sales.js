@@ -1,8 +1,9 @@
 App.registerView('sales', {
   async render(params) {
+    if (params.new === 'Quotation' || params.quote) return await this.renderQuoteForm(params);
     if (params.new) return await this.renderDocForm(params.new, params.cust, params.source);
     const tab = params.tab || 'docs';
-    const tabs = [['docs', '🧾 Document Billing Engine'], ['requirements', '📋 Requirements'], ['customers', '👥 Customers'], ['receivables', '💰 Receivables & Aging'], ['ledger', '📒 Ledger']];
+    const tabs = [['quotations', '💼 Quotations'], ['docs', '🧾 Document Billing Engine'], ['requirements', '📋 Requirements'], ['customers', '👥 Customers'], ['receivables', '💰 Receivables & Aging'], ['ledger', '📒 Ledger']];
     return `
     <div class="page-head"><div><h1>Sales & Outward Billing</h1><div class="sub">Requirements · Quotations · Tax Invoices · Challans · Credit/Debit Notes · E-Way bills</div></div>
       <div class="flex" id="sales-actions"></div></div>
@@ -10,11 +11,17 @@ App.registerView('sales', {
     <div id="sales-body"><div class="empty">Loading…</div></div>`;
   },
   async mount(params) {
+    if (params.new === 'Quotation' || params.quote) return await this.mountQuoteForm(params);
     if (params.new) return await this.mountDocForm(params.new, params.source);
     const tab = params.tab || 'docs';
     const body = document.getElementById('sales-body');
     const actions = document.getElementById('sales-actions');
     actions.innerHTML = '';
+    if (tab === 'quotations') {
+      actions.innerHTML = '<button class="btn btn-primary" id="btn-qnew">+ New Quotation</button>';
+      document.getElementById('btn-qnew').onclick = () => App.navigate('#/sales?quote=new');
+      await this.renderQuotations(body);
+    }
     if (tab === 'docs') {
       actions.innerHTML = `
         <button class="btn btn-outline" id="btn-req">+ Requirements</button>
@@ -43,6 +50,331 @@ App.registerView('sales', {
     }
     if (tab === 'receivables') await this.renderAging(body);
     if (tab === 'ledger') await this.renderLedger(body, params);
+  },
+
+  // ---------- Odoo-style quotation list view ----------
+  async renderQuotations(body) {
+    const { docs } = await UI.api('/api/salesdocs?type=Quotation');
+    this._qlist = { docs, q: '', filters: new Set(['mine']), group: '', collapsed: new Set() };
+    body.innerHTML = `
+      <div class="panel">
+        <div class="odo-searchbar">
+          <input type="search" id="q-search" placeholder="Search quotation # / customer…">
+          <span class="k-sub">Filters:</span>
+          ${[['mine', 'My Quotations'], ['Draft', 'Draft'], ['Sent', 'Sent'], ['Accepted', 'Accepted'], ['Rejected', 'Rejected'], ['expired', 'Expired']].map(([k, l]) =>
+      `<span class="odo-chip ${k === 'mine' ? 'on' : ''}" data-f="${k}">${l}</span>`).join('')}
+          <span class="k-sub">Group By:</span>
+          <span class="odo-chip"><select id="q-group">
+            <option value="">None</option><option value="customer">Customer</option><option value="status">Status</option><option value="month">Month</option>
+          </select></span>
+          <button class="link-btn" id="q-clear">Clear</button>
+        </div>
+        <div id="q-out"></div>
+      </div>`;
+    const out = document.getElementById('q-out');
+    const st = this._qlist;
+    const paint = () => { out.innerHTML = this.qlistTable(); this.wireQlist(out); };
+    document.getElementById('q-search').addEventListener('input', e => { st.q = e.target.value.trim().toLowerCase(); paint(); });
+    document.getElementById('q-group').addEventListener('change', e => { st.group = e.target.value; st.collapsed.clear(); paint(); });
+    document.getElementById('q-clear').onclick = () => {
+      st.q = ''; st.filters = new Set(['mine']); st.group = ''; st.collapsed.clear();
+      document.getElementById('q-search').value = ''; document.getElementById('q-group').value = '';
+      body.querySelectorAll('.odo-chip[data-f]').forEach(c => c.classList.toggle('on', st.filters.has(c.dataset.f)));
+      paint();
+    };
+    body.querySelectorAll('.odo-chip[data-f]').forEach(c => c.onclick = () => {
+      const f = c.dataset.f;
+      st.filters.has(f) ? st.filters.delete(f) : st.filters.add(f);
+      c.classList.toggle('on', st.filters.has(f));
+      st.collapsed.clear(); paint();
+    });
+    paint();
+  },
+  qlistFiltered() {
+    const st = this._qlist;
+    const today = new Date().toISOString().slice(0, 10);
+    return st.docs.filter(d => {
+      if (st.q && !(`${d.doc_no} ${d.customer_name || ''}`.toLowerCase().includes(st.q))) return false;
+      if (st.filters.has('mine') && String(d.created_by) !== String(App.user?.id)) return false;
+      const statuses = ['Draft', 'Sent', 'Accepted', 'Rejected'].filter(s => st.filters.has(s));
+      if (statuses.length && !statuses.includes(d.status)) return false;
+      if (st.filters.has('expired') && !(d.due_date && d.due_date < today && d.status !== 'Accepted')) return false;
+      return true;
+    });
+  },
+  qlistTable() {
+    const st = this._qlist;
+    const rows = this.qlistFiltered();
+    const cols = `<thead><tr><th>Quotation #</th><th>Customer</th><th>Date</th><th>Valid Until</th><th>Client PO</th><th>Status</th><th class="num">Total</th></tr></thead>`;
+    const line = d => `<tr data-q="${d.id}" style="cursor:pointer">
+      <td><b>${UI.esc(d.doc_no)}</b></td><td>${UI.esc(d.customer_name)}</td>
+      <td>${UI.fmtDate(d.doc_date)}</td><td>${d.due_date ? UI.fmtDate(d.due_date) : '<span class="k-sub">—</span>'}</td>
+      <td>${d.po_ref ? `<span class="chip">${UI.esc(d.po_ref)}</span>` : '—'}</td>
+      <td>${UI.badge(d.status)}</td><td class="num"><b>${UI.money(d.grand_total)}</b></td></tr>`;
+    if (!rows.length) return `<div class="empty">No quotations match. Adjust filters or click "+ New Quotation".</div>`;
+    if (!st.group) {
+      const sum = rows.reduce((a, d) => a + Number(d.grand_total), 0);
+      return `<div class="k-sub mb">${rows.length} quotation${rows.length > 1 ? 's' : ''} · ${UI.money(sum)}</div>
+        <div class="table-wrap"><table class="data">${cols}<tbody>${rows.map(line).join('')}</tbody></table></div>`;
+    }
+    const keyOf = d => st.group === 'customer' ? (d.customer_name || '—')
+      : st.group === 'status' ? d.status
+        : (d.doc_date ? String(d.doc_date).slice(0, 7) : '—');
+    const labelOf = k => st.group === 'month'
+      ? new Date(k + '-01').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : k;
+    const groups = {};
+    rows.forEach(d => (groups[keyOf(d)] = groups[keyOf(d)] || []).push(d));
+    const body2 = Object.keys(groups).sort().map(k => {
+      const g = groups[k], sum = g.reduce((a, d) => a + Number(d.grand_total), 0);
+      const open = !st.collapsed.has(k);
+      return `<tr class="odo-group"><td colspan="7"><span class="g-toggle" data-g="${UI.esc(k)}">${open ? '▾' : '▸'} ${UI.esc(labelOf(k))}</span>
+        <span class="g-sum"> — ${g.length} record${g.length > 1 ? 's' : ''} · ${UI.money(sum)}</span></td></tr>
+        ${open ? g.map(line).join('') : ''}`;
+    }).join('');
+    return `<div class="table-wrap"><table class="data">${cols}<tbody>${body2}</tbody></table></div>`;
+  },
+  wireQlist(out) {
+    out.querySelectorAll('tr[data-q]').forEach(tr => tr.onclick = () => App.navigate('#/sales?quote=' + tr.dataset.q));
+    out.querySelectorAll('.g-toggle').forEach(t => t.onclick = () => {
+      const st = this._qlist, k = t.dataset.g;
+      st.collapsed.has(k) ? st.collapsed.delete(k) : st.collapsed.add(k);
+      const body2 = out.querySelector('.table-wrap');
+      if (body2) body2.outerHTML = this.qlistTable();
+      this.wireQlist(out);
+    });
+  },
+
+  // ---------- Odoo-style quotation form view ----------
+  async renderQuoteForm(params) {
+    const id = params.quote && params.quote !== 'new' ? Number(params.quote) : null;
+    const [{ customers }, { items: master }, { warehouses }] = await Promise.all([
+      UI.api('/api/customers'), UI.api('/api/items').catch(() => ({ items: [] })), UI.api('/api/warehouses').catch(() => ({ warehouses: [] }))
+    ]);
+    let doc = null, lines = [], source = null, project = null;
+    if (id) {
+      const r = await UI.api('/api/salesdocs/' + id);
+      doc = r.doc; lines = r.items || [];
+      if (doc.project_id) project = (await UI.api('/api/projects').catch(() => ({ projects: [] }))).projects?.find(p => p.id === doc.project_id) || null;
+    } else if (params.source) {
+      const r = await UI.api('/api/salesdocs/' + params.source).catch(() => null);
+      if (r) { source = { doc: r.doc, items: r.items || [] }; lines = source.items.map(i => ({ ...i })); }
+    }
+    if (params.cust && !doc) {
+      const c = customers.find(x => String(x.id) === String(params.cust));
+      if (c) doc = { customer_id: c.id, place_of_supply: c.place_of_supply, due_date: null, po_ref: '', notes: source?.doc?.notes || '', status: 'Draft' };
+    }
+    const editable = !id || ['Draft', 'Sent'].includes(doc?.status);
+    this._qf = { id, doc, lines, master, customers, warehouses, source, project, dirty: false, editable, tab: 'lines' };
+    const cur = id ? (doc.project_id ? 3 : doc.status === 'Accepted' ? 2 : doc.status === 'Sent' ? 1 : 0) : 0;
+    const title = id ? doc.doc_no : 'New Quotation';
+    const steps = [['Draft', 0], ['Sent', 1], ['Accepted', 2], ['Project', 3]];
+    return `
+    <div class="odo-cp">
+      <div>
+        <div class="odo-crumb">
+          <a onclick="App.navigate('#/sales?tab=quotations')">Sales</a><span class="sep">/</span>
+          <a onclick="App.navigate('#/sales?tab=quotations')">Quotations</a><span class="sep">/</span>
+          <span class="cur">${UI.esc(title)}</span>
+          ${doc?.status === 'Rejected' ? UI.badge('Rejected') : ''}
+        </div>
+        <div class="odo-status" id="q-status">
+          ${steps.map(([s, i]) => `<button data-s="${s}" class="${i === cur ? 'cur' : (i < cur ? 'done' : '')}">${s}${i === 3 && doc?.project_id ? ' ✓' : ''}</button>`).join('')}
+        </div>
+      </div>
+      <div class="odo-cp-actions" id="q-actions"></div>
+    </div>
+    ${this.quoteSmartHtml(doc, source, project)}
+    <div class="panel">
+      <div id="q-head">
+        <div class="form-grid">
+          ${UI.select('customer_id', 'Customer *', [{ value: '', label: '— select —' }, ...customers.map(c => ({ value: c.id, label: `${c.name} (${c.gstin || 'URP'})` }))], doc?.customer_id)}
+          ${editable ? UI.field('new_customer', 'Or add new customer', '', 'text', 'placeholder="Type a new company name to create one"') : ''}
+          ${UI.field('place_of_supply', 'Place of Supply', doc?.place_of_supply || 'Maharashtra (27)')}
+          ${UI.field('po_ref', 'Customer PO Ref', doc?.po_ref || '')}
+          ${UI.field('due_date', 'Valid Until', doc?.due_date ? String(doc.due_date).slice(0, 10) : '', 'date')}
+          ${UI.select('warehouse_id', 'Dispatch Warehouse', warehouses.map(w => ({ value: w.id, label: w.name })), doc?.warehouse_id || 1)}
+        </div>
+        <div class="odo-ntabs">
+          <button class="active" data-t="lines">Order Lines</button>
+          <button data-t="info">Other Info</button>
+        </div>
+        <div id="tab-lines">
+          <div class="table-wrap"><table class="odo-lines" id="q-lines">
+            <thead><tr><th style="min-width:150px">Product</th><th style="min-width:180px">Description</th><th style="min-width:90px">HSN/SAC</th>
+              <th class="num" style="width:70px">Qty</th><th class="num" style="width:100px">Unit Price</th><th class="num" style="width:70px">GST %</th>
+              <th class="num" style="width:110px">Amount</th><th style="width:34px"></th></tr></thead>
+            <tbody id="q-lbody"></tbody>
+          </table></div>
+          ${editable ? '<button class="odo-add" id="q-add">+ Add Line</button>' : ''}
+          <div class="odo-totals mt" id="q-totals"></div>
+        </div>
+        <div id="tab-info" class="hidden">
+          <div class="form-grid">
+            ${id ? `<div class="field"><span>Created</span><div class="odo-ro">${UI.fmtDate(doc.created_at)} by ${UI.esc(doc.created_by || '—')}</div></div>` : ''}
+            ${source ? `<div class="field"><span>Source Requirement</span><div class="odo-ro"><button class="link-btn" onclick="App.views.sales.reqDetail(${source.doc.id})">${UI.esc(source.doc.doc_no)}</button></div></div>` : ''}
+            ${id && doc.po_ref ? `<div class="field"><span>Client PO</span><div class="odo-ro">${UI.esc(doc.po_ref)}${doc.customer_po_date ? ' · ' + UI.fmtDate(doc.customer_po_date) : ''}</div></div>` : ''}
+            ${id ? `<div class="field"><span>Status</span><div class="odo-ro">${UI.badge(doc.status)} ${doc.project_id ? UI.badge('Active') : ''}</div></div>` : ''}
+          </div>
+          ${UI.textarea('notes', 'Notes / Scope of Work', doc?.notes || '')}
+        </div>
+      </div>
+    </div>`;
+  },
+  quoteSmartHtml(doc, source, project) {
+    const bits = [];
+    if (doc?.id) {
+      bits.push(`<div class="odo-stat plain">Total<b>${UI.money(doc.grand_total)}</b></div>`);
+      if (doc.po_ref) bits.push(`<div class="odo-stat plain">Client PO<b>${UI.esc(doc.po_ref)}</b></div>`);
+      if (source) bits.push(`<div class="odo-stat clickable" onclick="App.views.sales.reqDetail(${source.doc.id})">Requirement<b>${UI.esc(source.doc.doc_no)}</b></div>`);
+      if (project) bits.push(`<div class="odo-stat clickable" onclick="App.navigate('#/projects?id=${project.id}')">Project<b>${UI.esc(project.code)}</b></div>`);
+    }
+    return bits.length ? `<div class="odo-smart">${bits.join('')}</div>` : '';
+  },
+  async mountQuoteForm(params) {
+    const st = this._qf;
+    if (!st) return;
+    const qrecalc = () => {
+      let taxable = 0, tax = 0;
+      const pos = document.querySelector('[name=place_of_supply]')?.value || '';
+      const inter = !pos.startsWith('Maharashtra');
+      document.querySelectorAll('#q-lbody tr').forEach(tr => {
+        const qty = Number(tr.querySelector('[name=qty]').value || 0);
+        const rate = Number(tr.querySelector('[name=unit_price]').value || 0);
+        const gst = Number(tr.querySelector('[name=gst_rate]').value || 0);
+        const amt = qty * rate;
+        tr.querySelector('.amt').textContent = UI.money(amt);
+        taxable += amt; tax += amt * gst / 100;
+      });
+      const t = document.getElementById('q-totals');
+      if (t) t.innerHTML = `Taxable: <b>${UI.money(taxable)}</b><br>
+        ${inter ? `IGST: <b>${UI.money(tax)}</b>` : `CGST: <b>${UI.money(tax / 2)}</b> · SGST: <b>${UI.money(tax / 2)}</b>`}<br>
+        <div class="grand">Total: <b>${UI.money(taxable + tax)}</b></div>
+        <div class="k-sub">${inter ? 'Inter-state supply → IGST' : 'Intra-state supply → CGST + SGST'}</div>`;
+    };
+    const markDirty = () => {
+      if (!st.editable) return;
+      st.dirty = true;
+      document.getElementById('q-save')?.removeAttribute('disabled');
+      document.getElementById('q-discard')?.removeAttribute('disabled');
+    };
+    const addLine = (ln) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><select name="item_id"><option value="">— custom —</option>${st.master.map(i => `<option value="${i.id}" ${String(i.id) === String(ln?.item_id || '') ? 'selected' : ''}>${UI.esc(i.sku)} · ${UI.esc(i.name)}</option>`).join('')}</select></td>
+        <td><input name="description" value="${UI.esc(ln?.description || '')}"></td>
+        <td><input name="hsn_sac" value="${UI.esc(ln?.hsn_sac || '')}"></td>
+        <td class="num"><input name="qty" type="number" step="any" value="${ln?.qty ?? 1}"></td>
+        <td class="num"><input name="unit_price" type="number" step="any" value="${ln?.unit_price ?? ''}"></td>
+        <td class="num"><input name="gst_rate" type="number" step="any" value="${ln?.gst_rate ?? 18}"></td>
+        <td class="num amt">${UI.money(0)}</td>
+        <td>${st.editable ? '<button class="odo-rm" title="Remove line">✕</button>' : ''}</td>`;
+      tr.querySelector('[name=item_id]').onchange = e => {
+        const it = st.master.find(i => String(i.id) === e.target.value);
+        if (it) {
+          tr.querySelector('[name=description]').value = it.name;
+          tr.querySelector('[name=hsn_sac]').value = it.hsn_sac || '';
+          tr.querySelector('[name=unit_price]').value = it.sale_price || '';
+          tr.querySelector('[name=gst_rate]').value = it.gst_rate ?? 18;
+        }
+        qrecalc(); markDirty();
+      };
+      tr.querySelector('.odo-rm')?.addEventListener('click', () => { tr.remove(); qrecalc(); markDirty(); });
+      tr.addEventListener('input', () => { qrecalc(); markDirty(); });
+      document.getElementById('q-lbody').appendChild(tr);
+      qrecalc();
+    };
+    (st.lines.length ? st.lines : [null]).forEach(ln => addLine(ln));
+    document.getElementById('q-add')?.addEventListener('click', () => { addLine(); markDirty(); });
+    document.querySelector('[name=place_of_supply]').addEventListener('input', () => { qrecalc(); markDirty(); });
+    document.getElementById('q-head').addEventListener('input', markDirty);
+    document.getElementById('q-head').addEventListener('change', markDirty);
+    // notebook tabs
+    document.querySelectorAll('.odo-ntabs button').forEach(b => b.onclick = () => {
+      st.tab = b.dataset.t;
+      document.querySelectorAll('.odo-ntabs button').forEach(x => x.classList.toggle('active', x === b));
+      document.getElementById('tab-lines').classList.toggle('hidden', st.tab !== 'lines');
+      document.getElementById('tab-info').classList.toggle('hidden', st.tab !== 'info');
+    });
+    // control panel actions
+    const acts = document.getElementById('q-actions');
+    const btn = (id, label, cls) => `<button class="btn ${cls}" id="${id}" ${id === 'q-save' || id === 'q-discard' ? 'disabled' : ''}>${label}</button>`;
+    acts.innerHTML = [
+      st.editable ? btn('q-save', st.id ? 'Save' : 'Create Quotation', 'btn-primary') : '',
+      st.editable ? btn('q-discard', 'Discard', 'btn-outline') : '',
+      st.id ? btn('q-print', '🖨 Print', 'btn-outline') : '',
+      st.id && st.doc.status === 'Draft' ? btn('q-send', 'Send', 'btn-tonal') : '',
+      st.id && st.doc.status === 'Sent' ? btn('q-todraft', 'Set to Draft', 'btn-outline') + btn('q-accept', '✓ Confirm Sale — Record Client PO', 'btn-primary') : '',
+      st.id && st.doc.status === 'Rejected' ? btn('q-todraft', 'Set to Draft', 'btn-tonal') : '',
+      st.id && st.doc.status === 'Accepted' && !st.doc.project_id ? btn('q-project', '📂 Create Project', 'btn-primary') : ''
+    ].join('');
+    const reload = () => App.navigate('#/sales?quote=' + st.id);
+    acts.querySelector('#q-print')?.addEventListener('click', () => App.views.settings.openInvoicePrint(st.doc, st.lines));
+    acts.querySelector('#q-send')?.addEventListener('click', async () => {
+      try { await UI.api(`/api/salesdocs/${st.id}/status`, { method: 'POST', body: { status: 'Sent' } }); UI.toast('Quotation marked Sent', 'ok'); reload(); }
+      catch (e) { UI.toast(e.message, 'err'); }
+    });
+    acts.querySelector('#q-todraft')?.addEventListener('click', async () => {
+      try { await UI.api(`/api/salesdocs/${st.id}/status`, { method: 'POST', body: { status: 'Draft' } }); UI.toast('Back to Draft', 'ok'); reload(); }
+      catch (e) { UI.toast(e.message, 'err'); }
+    });
+    acts.querySelector('#q-accept')?.addEventListener('click', () => this.acceptForm(st.id, 'form'));
+    acts.querySelector('#q-project')?.addEventListener('click', () => this.projectFromQuote(st.id, st.doc));
+    acts.querySelector('#q-discard')?.addEventListener('click', () => App.navigate('#/sales?tab=quotations'));
+    const save = async () => {
+      if (!st.editable) return;
+      const head = UI.formValues('q-head');
+      head.notes = (document.querySelector('textarea[name=notes]')?.value || '').trim();
+      const newName = (head.new_customer || '').trim();
+      delete head.new_customer;
+      const its = [...document.querySelectorAll('#q-lbody tr')].map(tr => {
+        const o = {};
+        tr.querySelectorAll('[name]').forEach(el => o[el.name] = el.type === 'number' ? Number(el.value || 0) : el.value.trim());
+        o.item_id = o.item_id ? Number(o.item_id) : null;
+        return o;
+      }).filter(i => i.description);
+      if (!its.length) return UI.toast('Add at least one line item', 'err');
+      try {
+        if (newName) {
+          const { id: cid } = await UI.api('/api/customers', { method: 'POST', body: { name: newName } });
+          head.customer_id = cid;
+          UI.toast(`Customer "${newName}" created`, 'ok');
+        }
+        if (!head.customer_id) return UI.toast('Select or add a customer', 'err');
+        if (st.id) {
+          const r = await UI.api('/api/salesdocs/' + st.id, { method: 'PUT', body: { ...head, items: its } });
+          UI.toast(`Saved — total ${UI.money(r.grand_total)}`, 'ok');
+          st.dirty = false;
+          reload();
+        } else {
+          const body2 = { ...head, doc_type: 'Quotation', items: its };
+          if (st.source) body2.source_doc_id = st.source.doc.id;
+          const r = await UI.api('/api/salesdocs', { method: 'POST', body: body2 });
+          UI.toast(`${r.doc_no} created — total ${UI.money(r.grand_total)}`, 'ok');
+          st.dirty = false;
+          App.navigate('#/sales?quote=' + r.id);
+        }
+      } catch (e) { UI.toast(e.message, 'err'); }
+    };
+    acts.querySelector('#q-save')?.addEventListener('click', save);
+    // statusbar step clicks: Draft→Sent, Sent/Rejected→Draft
+    document.querySelectorAll('#q-status button').forEach(b => b.onclick = async () => {
+      if (!st.id) return;
+      const s = b.dataset.s;
+      try {
+        if (s === 'Sent' && st.doc.status === 'Draft') { await UI.api(`/api/salesdocs/${st.id}/status`, { method: 'POST', body: { status: 'Sent' } }); UI.toast('Quotation marked Sent', 'ok'); reload(); }
+        else if (s === 'Draft' && ['Sent', 'Rejected'].includes(st.doc.status)) { await UI.api(`/api/salesdocs/${st.id}/status`, { method: 'POST', body: { status: 'Draft' } }); UI.toast('Back to Draft', 'ok'); reload(); }
+      } catch (e) { UI.toast(e.message, 'err'); }
+    });
+    // Ctrl/Cmd+S saves; Esc discards when dirty
+    this._qfKey = e => {
+      if (!document.getElementById('q-lines')) { document.removeEventListener('keydown', this._qfKey); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
+      if (e.key === 'Escape' && st.dirty && st.editable && !document.querySelector('.modal-backdrop')) {
+        if (confirm('Discard unsaved changes?')) App.navigate('#/sales?tab=quotations');
+      }
+    };
+    document.addEventListener('keydown', this._qfKey);
+    qrecalc();
   },
 
   async renderDocs(body) {
@@ -379,7 +711,8 @@ App.registerView('sales', {
     try { await UI.api(`/api/salesdocs/${id}/status`, { method: 'POST', body: { status } }); UI.closeModal(); UI.toast(`Quotation marked ${status}`, 'ok'); this.docDetail(id); }
     catch (e) { UI.toast(e.message, 'err'); }
   },
-  async acceptForm(id) {
+  async acceptForm(id, ret) {
+    const back = () => ret === 'form' ? App.navigate('#/sales?quote=' + id) : this.docDetail(id);
     const b = UI.modal('Accept Quotation — Record Client PO', `
       <p class="k-sub">Enter the purchase order your client issued against this quotation.</p>
       <div class="form-grid" id="af">
@@ -391,7 +724,7 @@ App.registerView('sales', {
     b.querySelector('#a-save').onclick = async () => {
       const d = UI.formValues('af'); d.notes = b.querySelector('[name=notes]').value;
       if (!d.po_ref) return UI.toast('Client PO number required', 'err');
-      try { await UI.api(`/api/salesdocs/${id}/accept`, { method: 'POST', body: d }); UI.closeModal(); UI.toast('Quotation accepted', 'ok'); this.docDetail(id); }
+      try { await UI.api(`/api/salesdocs/${id}/accept`, { method: 'POST', body: d }); UI.closeModal(); UI.toast('Quotation accepted', 'ok'); back(); }
       catch (e) { UI.toast(e.message, 'err'); }
     };
   },

@@ -37,7 +37,7 @@ app.use('/api', (req, res, next) => {
 });
 
 // module routers (all tenant-scoped via requireTenant above)
-for (const mod of ['dashboard', 'vendors', 'rfqs', 'pos', 'customers', 'salesdocs', 'items', 'warehouses', 'stock', 'leads', 'projects', 'gst', 'staff', 'expenses', 'receipts', 'warranties', 'search', 'notifications', 'settings', 'company', 'mcp']) {
+for (const mod of ['dashboard', 'vendors', 'rfqs', 'pos', 'customers', 'salesdocs', 'items', 'hsn', 'warehouses', 'stock', 'leads', 'projects', 'gst', 'staff', 'expenses', 'receipts', 'warranties', 'search', 'notifications', 'settings', 'company', 'mcp']) {
   try { app.use(`/api/${mod}`, require(`./server/routes/${mod}`)); } catch (e) { console.error(`route load failed: ${mod}`, e.message); }
 }
 

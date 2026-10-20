@@ -561,6 +561,19 @@ CREATE TABLE gstr2b_lines (
   FOREIGN KEY (return_id) REFERENCES gst_returns(id)
 ) ENGINE=InnoDB;
 
+-- Global HSN/SAC reference master (shared across tenants; seeded by scripts/seed-hsn.js)
+CREATE TABLE IF NOT EXISTS hsn_sac_master (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  code VARCHAR(12) NOT NULL,
+  description TEXT NOT NULL,
+  type ENUM('HSN','SAC') NOT NULL DEFAULT 'HSN',
+  gst_rate DECIMAL(6,2) NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_hsn_code (code),
+  KEY idx_hsn_type (type),
+  KEY idx_hsn_rate (gst_rate),
+  FULLTEXT KEY ft_hsn_desc (description)
+) ENGINE=InnoDB;
+
 ALTER TABLE users ADD FOREIGN KEY (role_id) REFERENCES staff_roles(id);
 ALTER TABLE rfqs ADD FOREIGN KEY (project_id) REFERENCES projects(id);
 ALTER TABLE purchase_orders ADD FOREIGN KEY (project_id) REFERENCES projects(id);
